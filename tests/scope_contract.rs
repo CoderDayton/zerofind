@@ -1,9 +1,12 @@
 //! Root resolution, against the library API.
 
+use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use zerofind::domain::scope::{RootKind, ScopeError, SearchRoot, resolve_explicit, resolve_home};
+use zerofind::domain::scope::{
+    RootKind, ScopeError, SearchRoot, dedupe, is_location, resolve_explicit, resolve_location,
+};
 
 fn mkdirs(base: &Path, names: &[&str]) -> Vec<PathBuf> {
     names
@@ -27,48 +30,52 @@ fn local_root_is_cwd_and_prints_without_dot_slash() {
 }
 
 #[test]
-fn home_uses_existing_candidates_only() {
-    let home = tempfile::tempdir().unwrap();
-    let existing = mkdirs(home.path(), &["Documents", "Downloads"]);
-    let candidates = vec![
-        existing[0].clone(),
-        home.path().join("Desktop"),
-        existing[1].clone(),
-    ];
-    let roots = resolve_home(&candidates, Some(home.path())).unwrap();
-    let paths: Vec<_> = roots.iter().map(|r| r.path.clone()).collect();
-    assert_eq!(paths, existing);
-    assert!(roots.iter().all(|r| r.path.is_absolute()));
-}
-
-#[test]
-fn home_without_any_folder_is_an_error() {
-    let home = tempfile::tempdir().unwrap();
-    let candidates = vec![home.path().join("Documents")];
-    let err = resolve_home(&candidates, Some(home.path())).unwrap_err();
-    assert!(matches!(err, ScopeError::NoHomeFolders));
-}
-
-#[test]
-fn home_deduplicates_identities_and_nesting() {
-    let home = tempfile::tempdir().unwrap();
-    let docs = mkdirs(home.path(), &["Documents", "Documents/Desktop"]);
-    let alias = home.path().join("Docs-link");
+fn locations_are_absolute_home_parent_or_here() {
+    for arg in ["..", "../x", "a/../b", "~", "~/x", ".", "./"] {
+        assert!(is_location(OsStr::new(arg)), "{arg}");
+    }
     #[cfg(unix)]
-    std::os::unix::fs::symlink(&docs[0], &alias).unwrap();
-    let candidates = vec![docs[0].clone(), docs[1].clone(), alias];
-    let roots = resolve_home(&candidates, Some(home.path())).unwrap();
-    assert_eq!(roots.len(), 1);
-    assert_eq!(roots[0].path, docs[0]);
+    assert!(is_location(OsStr::new("/etc/hosts")));
+    for arg in ["src/main", "./src", "~x", ".env", "..x", "report"] {
+        assert!(!is_location(OsStr::new(arg)), "{arg}");
+    }
 }
 
 #[test]
-fn home_never_falls_back_to_home_itself() {
-    // xdg-user-dirs points disabled folders at $HOME.
+fn location_splits_into_root_and_term() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dl = mkdirs(tmp.path(), &["Downloads"]).remove(0);
+    let loc = resolve_location(dl.join("report").as_os_str(), None).unwrap();
+    assert_eq!(loc.root.path, dl);
+    assert_eq!(loc.term.as_deref(), Some(OsStr::new("report")));
+
+    let whole = resolve_location(dl.as_os_str(), None).unwrap();
+    assert_eq!((whole.root.kind, whole.term), (RootKind::Dir, None));
+
+    let err = resolve_location(tmp.path().join("no/such").as_os_str(), None).unwrap_err();
+    assert!(matches!(err, ScopeError::Inaccessible { .. }));
+}
+
+#[test]
+fn tilde_expands_to_the_given_home() {
     let home = tempfile::tempdir().unwrap();
-    let candidates = vec![home.path().to_path_buf(), home.path().join(".")];
-    let err = resolve_home(&candidates, Some(home.path())).unwrap_err();
-    assert!(matches!(err, ScopeError::NoHomeFolders));
+    let docs = mkdirs(home.path(), &["Docs"]).remove(0);
+    let loc = resolve_location(OsStr::new("~/Docs/x"), Some(home.path())).unwrap();
+    assert_eq!(loc.root.path, docs);
+    let err = resolve_location(OsStr::new("~/Docs"), None).unwrap_err();
+    assert!(matches!(err, ScopeError::NoHome));
+}
+
+#[test]
+fn dedupe_drops_repeats_and_nested_roots() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dirs = mkdirs(tmp.path(), &["a", "a/b", "c"]);
+    let roots: Vec<SearchRoot> = [&dirs[1], &dirs[0], &dirs[2], &dirs[0]]
+        .iter()
+        .map(|d| resolve_explicit(d).unwrap())
+        .collect();
+    let kept: Vec<PathBuf> = dedupe(roots).into_iter().map(|r| r.path).collect();
+    assert_eq!(kept, vec![dirs[0].clone(), dirs[2].clone()]);
 }
 
 #[test]

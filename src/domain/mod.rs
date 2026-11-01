@@ -5,7 +5,7 @@ pub mod query;
 pub mod scope;
 
 use policy::{ResultKind, VisibilityPolicy};
-use query::CompiledQuery;
+use query::Query;
 use scope::SearchRoot;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,7 +21,7 @@ pub enum OutputFormat {
 #[derive(Debug, Clone)]
 pub struct SearchPlan {
     pub roots: Vec<SearchRoot>,
-    pub query: CompiledQuery,
+    pub query: Query,
     pub visibility: VisibilityPolicy,
     pub result_kind: ResultKind,
     pub output: OutputFormat,

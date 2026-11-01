@@ -10,15 +10,16 @@ Find files by name, extension, or path without learning flags.
 </div>
 
 `zf` is a non-interactive filesystem search. The query text decides how it matches: `index` is a
-name fragment, `.rs` is an extension, `src/main` is a path. It searches the current directory by
-default and streams plain paths to stdout.
+name fragment, `.rs` is an extension, `*.rs` a glob, `src/main` a path, and several words must
+all match. A location in the arguments (`~/Downloads/report`) says where to look; otherwise it
+searches the current directory. It streams plain paths to stdout.
 
 A parallel walk (up to 8 workers) feeds a 1,024-slot queue that one writer drains, with no sorting or
 buffering stage. On an i9-13900K with a warm page cache, the first result arrives in 2–5 ms across
 every benchmark tree, against 5.6–22 ms for `fd` 10.5.0, at 4–26 MB peak memory against
 148–172 MB.
 
-It is not a general query language: no regex, globs, size or time filters, or exec. When the
+It is not a general query language: no regex, size or time filters, or exec. When the
 output itself is the bottleneck (100,000 matches to `/dev/null`) `fd` is about 10% faster. See
 [When not to use this](#when-not-to-use-this).
 
@@ -35,18 +36,20 @@ tests/query_contract.rs
   collected or sorted. [Design](docs/design.md) explains the pipeline.
 - **Memory does not grow with matches**: peak RSS is 7.5–7.7 MB with 100,000 matches and 8.2 MB
   with none on the same tree, and 7.6–7.8 MB when the reader is slow.
-- **Fixed query grammar**: the mode comes from the query text before the walk and never changes
-  because nothing matched.
+- **Fixed query grammar**: each word's mode comes from its text before the walk and never
+  changes because nothing matched.
 - **Conservative defaults**: hidden entries, `.gitignore` rules inside git repositories, `.ignore`
-  rules everywhere (both also from parent directories) and 8 build/VCS directory names are
-  skipped and pruned before descent. `--all` lifts all of them.
+  rules everywhere (both also from parent directories) and generated directories are skipped and
+  pruned before descent. `target`, `build` and `dist` count as generated only beside a project
+  manifest, so `~/Documents/build` is searched. Spelling a skipped name (`.env`, `node_modules`)
+  reaches it; `--all` lifts everything.
 - **Stays in bounds**: never follows a symlinked directory, never climbs above the search root,
   never reads file contents.
 - **Pipe-safe**: stdout carries paths only; `-0` uses NUL separators; names starting with `-`
   keep their `./`; a closed pipe exits 0 quietly; Ctrl+C exits 130 with only whole paths written.
 - **Terminal-safe**: on a terminal, control characters in names print as `\xNN`, so a file name
   cannot drive the terminal.
-- **Small**: 1.9 MB stripped binary, about 3–7 ms to start in an empty directory.
+- **Small**: 2.0 MB stripped binary, about 3–7 ms to start in an empty directory.
 
 ## Usage
 
@@ -56,25 +59,30 @@ cargo install --path .
 
 ```bash
 zf index                 # names containing "index", case-insensitive
-zf .pdf --home           # Documents, Desktop, Downloads only
-zf hosts -p /etc         # an explicit root
+zf annual report         # names containing both words
+zf .env                  # every .env file, and *.env
+zf ~/Downloads/invoice   # "invoice" anywhere under ~/Downloads
+zf .pdf --home           # the whole home directory
 zf ./src/main            # path anchored at the search root
-zf .rs | xargs wc -l     # results are plain paths
+zf '*.rs' | xargs wc -l  # results are plain paths
 ```
 
 | Query | Mode | Matches | Does not match |
 |---|---|---|---|
 | `config` | name substring | `app-config.toml`, `Config.json` | `settings.yaml` |
-| `.rs` | exact final extension | `main.rs` | `main.rs.bak`, `.rs` |
+| `main.rs` | dotted name, from a word start | `main.rs`, `my-main.rs` | `domain.rs` |
+| `.rs` | exact extension, or that exact name | `main.rs` | `main.rs.bak` |
+| `.env` | same | `.env`, `app/.env`, `prod.env` | `.envrc` |
+| `*.rs` | whole-name glob (`*`, `?`) | `main.rs` | `main.rs.bak` |
 | `src/lib` | path: whole components, last one by prefix | `src/lib.rs`, `app/src/library.rs` | `src/old-lib.rs` |
 | `./src/main` | path anchored at the root | `src/main.rs` | `pkg/src/main.rs` |
 | `src/` | directory named exactly `src` | `src`, `app/src` | `src/main.rs`, `srcs` |
 
 | Option | Effect |
 |---|---|
-| `--home` | Search the platform's Documents, Desktop and Downloads folders |
-| `-p, --path DIR` | Search `DIR` (or evaluate one file); excludes `--home` |
-| `--all` | Include hidden, ignored and built-in excluded entries |
+| `--home` | Search the home directory |
+| `-p, --path DIR` | Search `DIR` (or evaluate one file); repeatable, for relative directories a location cannot express |
+| `--all` | Include hidden, ignored and generated entries |
 | `--files` / `--dirs` | Emit only files or only directories; traversal is unchanged |
 | `-0, --print0` | NUL-separated output |
 
@@ -87,7 +95,7 @@ through `sort` when it matters. Every rule, edge case and diagnostic is in the
 
 | Situation | Use instead | Why |
 |---|---|---|
-| Regex, glob, size, time or owner filters | `fd`, `find` | `zf` has three query modes and no filter expressions by design |
+| Regex, size, time or owner filters | `fd`, `find` | `zf` has four word modes and no filter expressions by design |
 | Running a command per result | `fd -x`, `find -exec` | No exec; pipe to `xargs -0` with `-0` |
 | Repeated whole-disk lookups | `plocate` | `zf` keeps no index; each run walks the tree |
 | Output-bound runs (100k+ matches to `/dev/null`) | `fd` | `fd` measured 18.9 ms vs 20.9 ms for `zf` |

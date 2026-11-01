@@ -14,6 +14,11 @@ fn artifact_tree() -> Tree {
         "gen/main.gen",
         "notes/main-scratch.txt",
         "build/main.c",
+        "venv/lib/main.py",
+        "venv/pyvenv.cfg",
+        "__pycache__/main.pyc",
+        "Cargo.toml",
+        "package.json",
     ]);
     t.file(".gitignore", "gen/\n");
     t.file(".ignore", "*-scratch.txt\n");
@@ -44,25 +49,65 @@ fn all_includes_normally_excluded_entries() {
             "gen/main.gen",
             "notes/main-scratch.txt",
             "build/main.c",
+            "venv/lib/main.py",
+            "__pycache__/main.pyc",
         ])
     );
 }
 
 #[test]
-fn excluded_directory_is_not_itself_emitted() {
-    let t = Tree::with(&["node_modules/", "target/", "src/"]);
-    assert_eq!(zf(t.path(), &["target"]).code, 1);
-    assert_eq!(zf(t.path(), &["target", "--all"]).lines(), set(&["target"]));
+fn build_folders_without_a_project_are_searched() {
+    let t = Tree::with(&[
+        "Documents/build/notes/plan.txt",
+        "Documents/dist/plan-b.txt",
+    ]);
+    assert_eq!(
+        zf(t.path(), &["plan"]).lines(),
+        set(&[
+            "Documents/build/notes/plan.txt",
+            "Documents/dist/plan-b.txt"
+        ])
+    );
+}
+
+#[test]
+fn a_fragment_does_not_reach_a_skipped_directory() {
+    let t = Tree::with(&["node_modules/", "target/", "Cargo.toml", "src/"]);
+    assert_eq!(zf(t.path(), &["targ"]).code, 1);
+    assert_eq!(zf(t.path(), &["targ", "--all"]).lines(), set(&["target"]));
+}
+
+#[test]
+fn naming_a_skipped_directory_finds_it_without_entering_it() {
+    let t = Tree::with(&[
+        "node_modules/react/index.js",
+        "node_modules/a/node_modules/b.js",
+        "target/",
+        "Cargo.toml",
+    ]);
+    assert_eq!(
+        zf(t.path(), &["node_modules"]).lines(),
+        set(&["node_modules"])
+    );
+    assert_eq!(
+        zf(t.path(), &["--dirs", "TARGET"]).lines(),
+        set(&["target"])
+    );
+    assert_eq!(
+        zf(t.path(), &["node_modules/react"]).lines(),
+        set(&["node_modules/react"]),
+        "a path through it enters it"
+    );
 }
 
 #[cfg(unix)]
 #[test]
 fn symlink_to_directory_is_excluded_like_one() {
-    let t = Tree::with(&["out/a.txt", "root/src/"]);
+    let t = Tree::with(&["out/a.txt", "root/src/", "root/package.json"]);
     std::os::unix::fs::symlink(t.join("out"), t.join("root/build")).unwrap();
     let root = t.join("root");
-    assert_eq!(zf(&root, &["build"]).code, 1);
-    assert_eq!(zf(&root, &["build", "--all"]).lines(), set(&["build"]));
+    assert_eq!(zf(&root, &["buil"]).code, 1);
+    assert_eq!(zf(&root, &["buil", "--all"]).lines(), set(&["build"]));
 }
 
 #[test]
@@ -129,9 +174,13 @@ fn explicitly_named_hidden_segment_is_traversed() {
 }
 
 #[test]
-fn exemption_never_lifts_builtin_exclusions() {
-    let t = Tree::with(&[".git/config"]);
-    assert_eq!(zf(t.path(), &["./.git/config"]).code, 1);
+fn a_path_through_a_skipped_directory_reaches_it() {
+    let t = Tree::with(&[".git/config", ".git/hooks/pre-commit"]);
+    assert_eq!(
+        zf(t.path(), &["./.git/config"]).lines(),
+        set(&[".git/config"])
+    );
+    assert_eq!(zf(t.path(), &["config"]).code, 1);
 }
 
 #[test]

@@ -6,10 +6,12 @@ use std::sync::mpsc::SyncSender;
 
 use ignore::WalkState;
 
-use super::filtering::{relative, walker};
+use super::filtering::{admission, relative, walker};
 use super::matcher;
 use super::record::Record;
 use crate::domain::SearchPlan;
+use crate::domain::policy::Admission;
+use crate::domain::query::Named;
 use crate::domain::scope::{RootKind, SearchRoot};
 use crate::output::diag;
 
@@ -96,6 +98,14 @@ fn visit(
         && tx.send(Record::new(root.display(entry.path()))).is_err()
     {
         return WalkState::Quit;
+    }
+    // A hidden or generated directory the query only spells is a result, not a place to look.
+    // Symlinks are never entered, so only real directories need the check.
+    if entry.file_type().is_some_and(|t| t.is_dir())
+        && admission(&entry, &root.path, &plan.query, plan.visibility)
+            == Admission::Named(Named::Leaf)
+    {
+        return WalkState::Skip;
     }
     WalkState::Continue
 }

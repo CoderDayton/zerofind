@@ -3,7 +3,7 @@
 use std::ffi::OsStr;
 use std::path::Path;
 
-use zerofind::domain::query::{CompiledQuery, QueryError, QueryMode};
+use zerofind::domain::query::{CompiledQuery, Named, Query, QueryError, QueryMode};
 
 fn q(raw: &str) -> CompiledQuery {
     CompiledQuery::compile(OsStr::new(raw)).expect("query compiles")
@@ -38,15 +38,22 @@ fn separator_selects_path_mode() {
 }
 
 #[test]
-fn single_leading_dot_selects_extension_mode() {
+fn leading_dot_selects_extension_mode() {
     assert_eq!(q(".rs").mode(), QueryMode::Extension);
     assert_eq!(q(".config").mode(), QueryMode::Extension);
+    assert_eq!(q(".tar.gz").mode(), QueryMode::Extension);
+}
+
+#[test]
+fn wildcard_selects_glob_mode() {
+    assert_eq!(q("*.rs").mode(), QueryMode::Glob);
+    assert_eq!(q("report-202?").mode(), QueryMode::Glob);
+    assert_eq!(q("src/*.rs").mode(), QueryMode::Path);
 }
 
 #[test]
 fn everything_else_is_name_mode() {
     assert_eq!(q("index").mode(), QueryMode::Name);
-    assert_eq!(q(".tar.gz").mode(), QueryMode::Name);
     assert_eq!(q("main.rs").mode(), QueryMode::Name);
 }
 
@@ -69,12 +76,32 @@ fn basename_substring_case_insensitive() {
         ),
         ("README", ["README.md", "readme.txt"], "manual.md"),
         ("main.rs", ["main.rs", "old-main.rs"], "main.ts"),
+        ("port", ["report.txt", "port.c"], "pot.c"),
     ] {
         for name in yes {
             assert!(file(query, name), "{query} should match {name}");
         }
         assert!(!file(query, no), "{query} should not match {no}");
     }
+}
+
+#[test]
+fn dotted_name_starts_at_a_word_boundary() {
+    for name in [
+        "main.rs",
+        "my-main.rs",
+        "my_main.rs",
+        "x.main.rs",
+        "main.rs.bak",
+        "MAIN.RS",
+    ] {
+        assert!(file("main.rs", name), "main.rs should match {name}");
+    }
+    for name in ["domain.rs", "remain.rs", "émain.rs"] {
+        assert!(!file("main.rs", name), "main.rs should not match {name}");
+    }
+    assert!(!file("config.json", "tsconfig.json"));
+    assert!(file("v1.2", "v1.2.3.tar.gz"));
 }
 
 #[test]
@@ -89,19 +116,24 @@ fn exact_final_extension() {
     assert!(file(".rs", "src/lib.RS"));
     assert!(!file(".rs", "main.rs.bak"));
     assert!(!file(".rs", "rs"));
-    assert!(!file(".rs", ".rs"), "a hidden name has no extension");
     assert!(!file(".rs", "main.rsx"));
 }
 
 #[test]
-fn compound_extension_is_substring() {
+fn compound_extension_is_exact() {
     assert!(file(".tar.gz", "backup.tar.gz"));
-    assert!(file(".tar.gz", "backup.tar.gz.part"));
+    assert!(file(".TAR.GZ", "x.v1.tar.gz"));
+    assert!(!file(".tar.gz", "backup.tar.gz.part"));
+    assert!(!file(".tar.gz", "backup.tgz"));
 }
 
 #[test]
-fn dot_name_is_extension_not_hidden_name() {
-    assert!(!dir(".config", ".config"));
+fn dot_name_matches_extension_and_the_hidden_name() {
+    assert!(dir(".config", ".config"));
+    assert!(file(".env", ".env"));
+    assert!(file(".env", "prod.env"));
+    assert!(!file(".env", ".envrc"));
+    assert!(file(".eslintrc.json", ".eslintrc.json"));
     assert!(file(".config", "web.config"));
     assert!(dir("config", ".config"));
     assert!(dir("./.config", ".config"));
@@ -204,26 +236,93 @@ fn non_utf8_names_match_ascii_bytes() {
     );
 }
 
+fn names(query: &str, rel: &str) -> Named {
+    q(query).names(Path::new(rel))
+}
+
 #[test]
-fn path_query_names_its_hidden_components() {
-    let anchored = q("./.github/workflows");
-    assert!(anchored.names_hidden(Path::new(".github")));
-    assert!(!anchored.names_hidden(Path::new("a/.github")));
-    assert!(!anchored.names_hidden(Path::new(".git")));
-
-    let floating = q(".github/workflows");
-    assert!(floating.names_hidden(Path::new("a/.github")));
-
-    let last = q("./.env");
-    assert!(last.names_hidden(Path::new(".env")));
-    assert!(
-        last.names_hidden(Path::new(".envrc")),
+fn path_query_reaches_the_components_it_names() {
+    assert_eq!(names("./.github/workflows", ".github"), Named::Reach);
+    assert_eq!(names("./.github/workflows", "a/.github"), Named::No);
+    assert_eq!(names("./.github/workflows", ".git"), Named::No);
+    assert_eq!(names(".github/workflows", "a/.github"), Named::Reach);
+    assert_eq!(names("node_modules/react", "node_modules"), Named::Reach);
+    assert_eq!(
+        names("./.env", ".envrc"),
+        Named::Reach,
         "last component keeps prefix semantics"
     );
 }
 
 #[test]
-fn only_path_queries_grant_the_exemption() {
-    assert!(!q(".env").names_hidden(Path::new(".env")));
-    assert!(!q("env").names_hidden(Path::new(".env")));
+fn a_term_spelling_the_whole_name_names_it() {
+    assert_eq!(names(".env", "app/.env"), Named::Leaf);
+    assert_eq!(names("node_modules", "node_modules"), Named::Leaf);
+    assert_eq!(names("BUILD", "docs/build"), Named::Leaf);
+    assert_eq!(names(".*rc", ".bashrc"), Named::Leaf);
+    assert_eq!(names("env", ".env"), Named::No, "a fragment names nothing");
+    assert_eq!(
+        names("*", ".env"),
+        Named::No,
+        "a bare wildcard names nothing"
+    );
+    assert_eq!(names(".rs", "main.rs"), Named::No);
+}
+
+#[test]
+fn glob_matches_the_whole_name() {
+    assert!(file("*.rs", "main.rs"));
+    assert!(file("*.RS", "src/lib.rs"));
+    assert!(!file("*.rs", "main.rs.bak"));
+    assert!(file("report-202?.pdf", "Report-2024.pdf"));
+    assert!(!file("report-202?.pdf", "report-20245.pdf"));
+    assert!(file("a*b*c", "axxbyyc"));
+    assert!(!file("a*b*c", "axxbyy"));
+    assert!(file("[draft]*", "[draft] notes.md"), "brackets are literal");
+    assert!(!file("*.rs", "src.rs/inner.txt"), "ancestors do not match");
+}
+
+#[test]
+fn glob_components_in_path_queries() {
+    assert!(file("src/*.rs", "app/src/main.rs"));
+    assert!(!file("src/*.rs", "src/main.rs.bak"));
+    assert!(file("*/src/main", "app/src/main.rs"));
+    assert!(!file("./*/main", "a/b/main.rs"));
+}
+
+fn all(terms: &[&str]) -> Query {
+    Query::new(terms.iter().map(|t| q(t)).collect())
+}
+
+#[test]
+fn every_term_must_match() {
+    let query = all(&["annual", "report"]);
+    assert!(query.matches(Path::new("docs/2024 Annual Report.pdf"), false));
+    assert!(!query.matches(Path::new("docs/annual-budget.pdf"), false));
+    assert!(all(&["report", ".pdf"]).matches(Path::new("report.pdf"), false));
+    assert!(!all(&["report", ".pdf"]).matches(Path::new("report.txt"), false));
+}
+
+#[test]
+fn no_terms_match_everything() {
+    assert!(all(&[]).matches(Path::new("anything.bin"), false));
+    assert!(all(&[]).matches(Path::new("a/b"), true));
+}
+
+#[test]
+fn query_names_what_any_term_names() {
+    assert_eq!(all(&["x", ".env"]).names(Path::new(".env")), Named::Leaf);
+    assert_eq!(
+        all(&["./.github/w"]).names(Path::new(".github")),
+        Named::Reach
+    );
+    assert_eq!(all(&[]).names(Path::new(".env")), Named::No);
+}
+
+#[test]
+fn decomposed_unicode_matches_composed_query() {
+    let nfd = "cafe\u{301}.txt";
+    assert!(file("café", nfd));
+    assert!(file("CAFÉ", nfd));
+    assert!(file("cafe\u{301}", "café.txt"));
 }

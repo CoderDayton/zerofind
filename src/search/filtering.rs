@@ -6,8 +6,8 @@ use ignore::{DirEntry, WalkBuilder, WalkParallel};
 
 use super::matcher;
 use crate::domain::SearchPlan;
-use crate::domain::policy::VisibilityPolicy;
-use crate::domain::query::CompiledQuery;
+use crate::domain::policy::{Admission, VisibilityPolicy};
+use crate::domain::query::Query;
 use crate::domain::scope::SearchRoot;
 
 /// A walker with every option set explicitly, so no dependency default leaks into
@@ -17,7 +17,7 @@ pub fn walker(root: &SearchRoot, plan: &SearchPlan, threads: usize) -> WalkParal
     let mut builder = WalkBuilder::new(&root.path);
     builder
         .standard_filters(false)
-        // Hidden entries are decided by VisibilityPolicy, which knows the exemption for hidden names in path queries.
+        // Hidden entries are decided by VisibilityPolicy, which knows the names the query spells.
         .hidden(false)
         .parents(rules)
         .ignore(rules)
@@ -38,21 +38,25 @@ pub fn walker(root: &SearchRoot, plan: &SearchPlan, threads: usize) -> WalkParal
     let root_path = root.path.clone();
     let query = plan.query.clone();
     let policy = plan.visibility;
-    builder.filter_entry(move |entry| admits(entry, &root_path, &query, policy));
+    builder.filter_entry(move |entry| {
+        admission(entry, &root_path, &query, policy) != Admission::Denied
+    });
     builder.build_parallel()
 }
 
-fn admits(entry: &DirEntry, root: &Path, query: &CompiledQuery, policy: VisibilityPolicy) -> bool {
+pub fn admission(
+    entry: &DirEntry,
+    root: &Path,
+    query: &Query,
+    policy: VisibilityPolicy,
+) -> Admission {
     if entry.depth() == 0 {
-        return true;
+        return Admission::Normal;
     }
-    let name = entry.file_name();
     // Same kind as matching uses, so exclusion and `--dirs` agree about symlinks.
     let is_dir = || matcher::is_dir(entry.path(), entry.file_type());
-    let named_hidden = !policy.all
-        && name.as_encoded_bytes().starts_with(b".")
-        && query.names_hidden(relative(entry.path(), root));
-    policy.admits(name, is_dir, named_hidden)
+    let named = || query.names(relative(entry.path(), root));
+    policy.admit(entry.path(), entry.file_name(), is_dir, named)
 }
 
 pub fn relative<'a>(path: &'a Path, root: &Path) -> &'a Path {

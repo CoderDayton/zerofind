@@ -1,8 +1,9 @@
 //! Search root resolution and validation.
 
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RootKind {
@@ -19,7 +20,7 @@ pub struct SearchRoot {
 
 #[derive(Debug)]
 pub enum ScopeError {
-    NoHomeFolders,
+    NoHome,
     Inaccessible { path: PathBuf, source: io::Error },
 }
 
@@ -73,43 +74,99 @@ pub fn resolve_explicit(path: &Path) -> Result<SearchRoot, ScopeError> {
     })
 }
 
-/// User folders for `--home`. `candidates` come from the platform; any that is
-/// missing, is `home` itself, or sits inside another candidate is dropped, so home itself is never searched.
-pub fn resolve_home(
-    candidates: &[PathBuf],
-    home: Option<&Path>,
-) -> Result<Vec<SearchRoot>, ScopeError> {
-    let home_id = home.and_then(|h| fs::canonicalize(h).ok());
-    let picked: Vec<(PathBuf, &PathBuf)> = candidates
-        .iter()
-        .filter_map(|c| fs::canonicalize(c).ok().map(|id| (id, c)))
-        .filter(|(id, _)| id.is_dir() && Some(id) != home_id.as_ref())
-        .collect();
+/// The home directory, for `--home`.
+pub fn resolve_home(home: Option<&Path>) -> Result<SearchRoot, ScopeError> {
+    resolve_explicit(home.ok_or(ScopeError::NoHome)?)
+}
 
-    // Drop repeats and folders nested in another pick, so no entry is reported twice.
-    let roots: Vec<SearchRoot> = picked
-        .iter()
-        .enumerate()
-        .filter(|&(i, (id, _))| {
-            !picked
-                .iter()
-                .enumerate()
-                .any(|(j, (other, _))| j != i && id.starts_with(other) && (id != other || j < i))
+/// A query argument that names a place rather than a name: absolute, `~`-based, through `..`,
+/// or `.` itself. Relative paths like `src/main` stay path queries.
+pub fn is_location(arg: &OsStr) -> bool {
+    let b = arg.as_encoded_bytes();
+    is_here(b)
+        || b == b"~"
+        || b.strip_prefix(b"~")
+            .is_some_and(|rest| rest.first().copied().is_some_and(is_sep))
+        || Path::new(arg).components().any(|c| {
+            matches!(
+                c,
+                Component::Prefix(_) | Component::RootDir | Component::ParentDir
+            )
         })
-        .map(|(_, (id, given))| SearchRoot {
-            path: if given.is_absolute() {
-                (*given).clone()
-            } else {
-                id.clone()
-            },
-            kind: RootKind::Dir,
-            local: false,
-        })
-        .collect();
+}
 
-    if roots.is_empty() {
-        Err(ScopeError::NoHomeFolders)
-    } else {
-        Ok(roots)
+fn is_here(b: &[u8]) -> bool {
+    matches!(b, [b'.'] | [b'.', b'/']) || (cfg!(windows) && b == b".\\")
+}
+
+fn is_sep(b: u8) -> bool {
+    b == b'/' || (cfg!(windows) && b == b'\\')
+}
+
+/// A location split into where to search and, when its last component does not exist, the
+/// name to search for there: `~/Downloads/report` is `report` in `~/Downloads`.
+#[derive(Debug)]
+pub struct Location {
+    pub root: SearchRoot,
+    pub term: Option<OsString>,
+}
+
+pub fn resolve_location(arg: &OsStr, home: Option<&Path>) -> Result<Location, ScopeError> {
+    let b = arg.as_encoded_bytes();
+    if is_here(b) {
+        return Ok(Location {
+            root: SearchRoot::local()?,
+            term: None,
+        });
     }
+    let path = expand_tilde(arg, home)?;
+    let source = match fs::metadata(&path) {
+        Ok(_) => {
+            return Ok(Location {
+                root: resolve_explicit(&path)?,
+                term: None,
+            });
+        }
+        Err(e) => e,
+    };
+    let trailing_sep = b.last().copied().is_some_and(is_sep);
+    match (path.parent(), path.file_name()) {
+        (Some(parent), Some(name)) if !trailing_sep && parent.is_dir() => Ok(Location {
+            root: resolve_explicit(parent)?,
+            term: Some(name.to_owned()),
+        }),
+        _ => Err(ScopeError::Inaccessible { path, source }),
+    }
+}
+
+fn expand_tilde(arg: &OsStr, home: Option<&Path>) -> Result<PathBuf, ScopeError> {
+    let b = arg.as_encoded_bytes();
+    if b == b"~" {
+        return Ok(home.ok_or(ScopeError::NoHome)?.to_path_buf());
+    }
+    match Path::new(arg).strip_prefix("~") {
+        Ok(rest) if b.get(1).copied().is_some_and(is_sep) => {
+            Ok(home.ok_or(ScopeError::NoHome)?.join(rest))
+        }
+        _ => Ok(PathBuf::from(arg)),
+    }
+}
+
+/// Drops roots that repeat or sit inside another root, so no entry is reported twice.
+/// Order is kept.
+pub fn dedupe(roots: Vec<SearchRoot>) -> Vec<SearchRoot> {
+    let ids: Vec<PathBuf> = roots
+        .iter()
+        .map(|r| fs::canonicalize(&r.path).unwrap_or_else(|_| r.path.clone()))
+        .collect();
+    roots
+        .into_iter()
+        .enumerate()
+        .filter(|&(i, _)| {
+            !ids.iter().enumerate().any(|(j, other)| {
+                j != i && ids[i].starts_with(other) && (ids[i] != *other || j < i)
+            })
+        })
+        .map(|(_, r)| r)
+        .collect()
 }

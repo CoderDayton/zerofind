@@ -15,7 +15,6 @@ pub mod output;
 pub mod search;
 
 use std::io::{self, IsTerminal, Write};
-use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::sync_channel;
@@ -24,7 +23,7 @@ use clap::Parser;
 
 use cli::Cli;
 use domain::policy::{ResultKind, VisibilityPolicy};
-use domain::query::CompiledQuery;
+use domain::query::{CompiledQuery, Query};
 use domain::scope::{self, SearchRoot};
 use domain::{OutputFormat, SearchPlan};
 use error::{ZfError, status};
@@ -38,7 +37,7 @@ const CHANNEL_CAPACITY: usize = 1024;
 static INTERRUPTED: AtomicBool = AtomicBool::new(false);
 
 pub fn run() -> ExitCode {
-    let cli = Cli::parse();
+    let cli = Cli::parse_from(cli::normalize(std::env::args_os()));
     // Without a handler, Ctrl+C still ends the process; it just skips the clean exit.
     let _ = ctrlc::set_handler(|| {
         if on_ctrl_c(&INTERRUPTED) {
@@ -61,17 +60,34 @@ fn on_ctrl_c(interrupted: &AtomicBool) -> bool {
 }
 
 fn plan(cli: &Cli) -> Result<SearchPlan, ZfError> {
-    let query = CompiledQuery::compile(&cli.query)?;
-    let roots = if cli.home {
-        home_roots()?
-    } else if let Some(path) = &cli.path {
-        vec![scope::resolve_explicit(path)?]
-    } else {
-        vec![SearchRoot::local()?]
-    };
+    let home = dirs::home_dir();
+    let mut roots = Vec::new();
+    let mut terms = Vec::new();
+    for arg in &cli.terms {
+        if scope::is_location(arg) {
+            let loc = scope::resolve_location(arg, home.as_deref())?;
+            roots.push(loc.root);
+            terms.extend(loc.term);
+        } else {
+            terms.push(arg.clone());
+        }
+    }
+    for path in &cli.path {
+        roots.push(scope::resolve_explicit(path)?);
+    }
+    if cli.home {
+        roots.push(scope::resolve_home(home.as_deref())?);
+    }
+    if roots.is_empty() {
+        roots.push(SearchRoot::local()?);
+    }
+    let terms = terms
+        .iter()
+        .map(|t| CompiledQuery::compile(t))
+        .collect::<Result<_, _>>()?;
     Ok(SearchPlan {
-        roots,
-        query,
+        roots: scope::dedupe(roots),
+        query: Query::new(terms),
         visibility: VisibilityPolicy { all: cli.all },
         result_kind: match (cli.files, cli.dirs) {
             (true, _) => ResultKind::Files,
@@ -86,27 +102,6 @@ fn plan(cli: &Cli) -> Result<SearchPlan, ZfError> {
             OutputFormat::Lines
         },
     })
-}
-
-/// Platform-configured user folders. Conventional names under home are used only
-/// when the platform configures none of them: a folder the user disabled stays disabled.
-fn home_roots() -> Result<Vec<SearchRoot>, ZfError> {
-    let home = dirs::home_dir();
-    let configured: Vec<PathBuf> = [
-        dirs::document_dir(),
-        dirs::desktop_dir(),
-        dirs::download_dir(),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
-    let candidates = match (&home, configured.is_empty()) {
-        (Some(h), true) => ["Documents", "Desktop", "Downloads"]
-            .map(|n| h.join(n))
-            .to_vec(),
-        _ => configured,
-    };
-    Ok(scope::resolve_home(&candidates, home.as_deref())?)
 }
 
 fn execute(plan: &SearchPlan, out: impl Write, interrupted: &AtomicBool) -> Result<u8, ZfError> {
@@ -153,7 +148,7 @@ mod tests {
         std::fs::write(dir.path().join("a.txt"), "").unwrap();
         let plan = SearchPlan {
             roots: vec![scope::resolve_explicit(dir.path()).unwrap()],
-            query: CompiledQuery::compile("a.txt".as_ref()).unwrap(),
+            query: Query::new(vec![CompiledQuery::compile("a.txt".as_ref()).unwrap()]),
             visibility: VisibilityPolicy { all: false },
             result_kind: ResultKind::Any,
             output: OutputFormat::Lines,

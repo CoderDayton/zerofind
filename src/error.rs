@@ -50,20 +50,16 @@ impl fmt::Display for ZfError {
                     "invalid query '.': an extension query needs a name after the dot"
                 )
             }
-            Self::Query(QueryError::Absolute) => write!(
-                f,
-                "invalid query: a path query cannot start with '/'; use --path to search elsewhere"
-            ),
-            Self::Query(QueryError::ParentComponent) => write!(
-                f,
-                "invalid query: '..' is not allowed; use --path to search elsewhere"
-            ),
+            Self::Query(QueryError::Absolute) => {
+                write!(f, "invalid query: a path query cannot start with '/'")
+            }
+            Self::Query(QueryError::ParentComponent) => {
+                write!(f, "invalid query: '..' is not a name")
+            }
             Self::Query(QueryError::NoComponents) => {
                 write!(f, "invalid query: the path names nothing")
             }
-            Self::Scope(ScopeError::NoHomeFolders) => {
-                write!(f, "no user folders found (Documents, Desktop, Downloads)")
-            }
+            Self::Scope(ScopeError::NoHome) => write!(f, "cannot find the home directory"),
             Self::Scope(ScopeError::Inaccessible { path, source }) => {
                 write!(f, "cannot search '{}': {source}", path.display())
             }

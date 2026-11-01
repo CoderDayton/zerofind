@@ -19,10 +19,13 @@ import subprocess
 import tempfile
 import time
 
-# fd flags that reproduce zf's default policy: case-insensitive, ignore files outside git
-# repos, and zf's built-in excluded directories (EXCLUDED_DIRS_V1; hidden ones fd skips anyway).
-FD_COMMON = ["--color", "never", "-i", "--no-require-git",
-             "-E", "node_modules", "-E", "target", "-E", "dist", "-E", "build"]
+# fd flags that approximate zf's default policy: case-insensitive, git rules inside repos only,
+# and zf's generated directories. fd cannot check zf's markers (Cargo.toml beside target/, ...),
+# so the match-set check fails on trees with an unmarked target/, build/, dist/, out/,
+# coverage/ or vendor/; hidden ones fd skips anyway.
+FD_COMMON = ["--color", "never", "-i",
+             "-E", "node_modules", "-E", "__pycache__", "-E", "target", "-E", "dist",
+             "-E", "build", "-E", "out", "-E", "coverage", "-E", "vendor"]
 
 def queries(name):
     return [
