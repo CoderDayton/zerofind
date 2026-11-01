@@ -1,0 +1,17 @@
+[package]
+name = "zerofind"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "zf"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.6.7", features = ["derive"] }
+ctrlc = "3.5.2"
+dirs = "7.0.0"
+ignore = "0.4.34"
+
+[dev-dependencies]
+tempfile = "3.27.0"

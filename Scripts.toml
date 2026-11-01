@@ -1,0 +1,35 @@
+# Loop: failing test -> `cgs run t <filter>` -> implement -> `cgs check`.
+# Scripts with arguments need `cgs run <name> <arg>`; the short form forwards no arguments.
+
+[global_env]
+RUST_BACKTRACE = "1"
+
+[scripts]
+
+[scripts.list]
+command = "cgs show"
+info = "List all scripts"
+
+[scripts.t]
+command = "timeout 300 cargo test --quiet -- {{filter}}"
+args = ["filter"]
+info = "Run the tests whose names contain a filter (cgs run t symlink)"
+
+[scripts.fmt]
+interpreter = "bash"
+command = '''
+if [ "$FIX" = "1" ]; then cargo fmt; else cargo fmt --check; fi
+'''
+info = "Check formatting (--env FIX=1 to apply)"
+
+[scripts.clippy]
+command = "timeout 600 cargo clippy --quiet --all-targets -- -D warnings"
+info = "Lint, warnings denied"
+
+[scripts.test]
+command = "timeout 600 cargo test --quiet"
+info = "Full test suite"
+
+[scripts.check]
+include = ["fmt", "clippy", "test"]
+info = "fmt + clippy + tests: the gate before every commit"
