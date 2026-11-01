@@ -33,3 +33,26 @@ info = "Full test suite"
 [scripts.check]
 include = ["fmt", "clippy", "test"]
 info = "fmt + clippy + tests: the gate before every commit"
+
+[scripts.bench]
+interpreter = "bash"
+command = '''
+timeout 600 cargo build --quiet --release
+cc -O2 -o target/peakrss benches/peakrss.c
+timeout 1200 python3 -I benches/compare.py --runs "${RUNS:-10}" "{{dir}}"
+'''
+args = ["dir"]
+info = "zf vs fd on one tree: match-set check, then wall/first-result/RSS (cgs run bench ~/src; --env RUNS=N)"
+requires = ["fd", "python3"]
+
+[scripts.bench-trees]
+interpreter = "bash"
+command = '''
+timeout 600 cargo build --quiet --release
+cc -O2 -o target/peakrss benches/peakrss.c
+python3 -I benches/make_trees.py target/bench-trees >/dev/null
+timeout 1200 python3 -I benches/compare.py --runs "${RUNS:-10}" --name m target/bench-trees/flat100k
+timeout 1200 python3 -I benches/compare.py --runs "${RUNS:-10}" target/bench-trees/deep
+'''
+info = "zf vs fd on generated trees: 100k matches (flat) and 120-level nesting (deep)"
+requires = ["fd", "python3"]

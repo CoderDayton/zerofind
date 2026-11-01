@@ -1,10 +1,71 @@
 //! Streaming output and termination.
 
 mod common;
-use std::io::{BufRead, BufReader, Read};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::process::Stdio;
+use std::sync::atomic::AtomicBool;
+use std::sync::mpsc::sync_channel;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use common::{Tree, set, zf, zf_cmd};
+use zerofind::domain::OutputFormat;
+use zerofind::output::writer;
+
+/// Records each underlying write call, like a pipe would see them.
+type WriteLog = Arc<Mutex<Vec<Vec<u8>>>>;
+
+#[derive(Clone, Default)]
+struct Probe {
+    writes: WriteLog,
+}
+
+impl Write for Probe {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.writes.lock().unwrap().push(buf.to_vec());
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Runs the writer on a pipe-like (non-terminal) output in a background thread.
+fn pipe_writer(
+    probe: &Probe,
+) -> (
+    std::sync::mpsc::SyncSender<String>,
+    std::thread::JoinHandle<()>,
+) {
+    let (tx, rx) = sync_channel(1024);
+    let out = probe.clone();
+    let handle = std::thread::spawn(move || {
+        let stop = AtomicBool::new(false);
+        writer::drain(rx, out, OutputFormat::Lines, &stop).unwrap();
+    });
+    (tx, handle)
+}
+
+#[test]
+fn record_is_delivered_promptly_when_the_walk_stalls() {
+    let probe = Probe::default();
+    let (tx, handle) = pipe_writer(&probe);
+    // A generous deadline: without flush-on-idle the record never arrives while the sender
+    // is alive, so a tight wall-clock bound would only add flakiness on a loaded machine.
+    for n in 1..=3 {
+        tx.send("a.txt".to_owned()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while probe.writes.lock().unwrap().len() < n {
+            assert!(
+                Instant::now() < deadline,
+                "record written while the sender is idle"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+    drop(tx);
+    handle.join().unwrap();
+}
 
 /// Enough long-named matches to overflow a pipe buffer several times.
 fn wide_tree(n: usize) -> Tree {

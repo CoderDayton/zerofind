@@ -1,7 +1,6 @@
 //! The single writer: streams records as they arrive, flushing whenever the queue runs dry.
 
 use std::io::{self, BufWriter, Write};
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, TryRecvError};
 
@@ -20,8 +19,9 @@ pub struct Written {
     pub ending: Ending,
 }
 
-pub fn drain<W: Write>(
-    rx: Receiver<PathBuf>,
+/// Records are raw path bytes; non-UTF-8 names pass through unchanged.
+pub fn drain<R: AsRef<[u8]>, W: Write>(
+    rx: Receiver<R>,
     out: W,
     format: OutputFormat,
     interrupted: &AtomicBool,
@@ -38,8 +38,8 @@ pub fn drain<W: Write>(
     }
 }
 
-fn write_all<W: Write>(
-    rx: &Receiver<PathBuf>,
+fn write_all<R: AsRef<[u8]>, W: Write>(
+    rx: &Receiver<R>,
     out: W,
     format: OutputFormat,
     interrupted: &AtomicBool,
@@ -51,7 +51,7 @@ fn write_all<W: Write>(
     };
     let mut out = BufWriter::with_capacity(32 * 1024, out);
     loop {
-        let path = match rx.try_recv() {
+        let record = match rx.try_recv() {
             Ok(p) => p,
             Err(TryRecvError::Empty) => {
                 out.flush()?;
@@ -67,7 +67,7 @@ fn write_all<W: Write>(
             out.flush()?;
             return Ok(Ending::Interrupted);
         }
-        out.write_all(path.as_os_str().as_encoded_bytes())?;
+        out.write_all(record.as_ref())?;
         out.write_all(&[sep])?;
         *any = true;
     }

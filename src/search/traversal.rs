@@ -1,6 +1,6 @@
 //! Walk coordination: parallel workers send matches into a bounded channel.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::SyncSender;
 
@@ -8,6 +8,7 @@ use ignore::WalkState;
 
 use super::filtering::{relative, walker};
 use super::matcher;
+use super::record::Record;
 use crate::domain::SearchPlan;
 use crate::domain::scope::{RootKind, SearchRoot};
 
@@ -19,7 +20,7 @@ pub struct Control<'a> {
     pub errors: &'a AtomicUsize,
 }
 
-pub fn run(plan: &SearchPlan, tx: SyncSender<PathBuf>, ctl: &Control<'_>) {
+pub fn run(plan: &SearchPlan, tx: SyncSender<Record>, ctl: &Control<'_>) {
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get().min(MAX_THREADS));
     for root in &plan.roots {
         if ctl.stop.load(Ordering::Relaxed) {
@@ -28,7 +29,9 @@ pub fn run(plan: &SearchPlan, tx: SyncSender<PathBuf>, ctl: &Control<'_>) {
         match root.kind {
             RootKind::File => {
                 let rel = root.path.file_name().map_or(root.path.as_path(), Path::new);
-                if matcher::is_match(plan, rel, || false) && tx.send(root.path.clone()).is_err() {
+                if matcher::is_match(plan, rel, || false)
+                    && tx.send(Record::new(&root.path)).is_err()
+                {
                     return;
                 }
             }
@@ -41,7 +44,7 @@ fn walk_dir(
     plan: &SearchPlan,
     root: &SearchRoot,
     threads: usize,
-    tx: &SyncSender<PathBuf>,
+    tx: &SyncSender<Record>,
     ctl: &Control<'_>,
 ) {
     walker(root, plan, threads).run(|| {
@@ -54,7 +57,7 @@ fn visit(
     result: Result<ignore::DirEntry, ignore::Error>,
     plan: &SearchPlan,
     root: &SearchRoot,
-    tx: &SyncSender<PathBuf>,
+    tx: &SyncSender<Record>,
     ctl: &Control<'_>,
 ) -> WalkState {
     if ctl.stop.load(Ordering::Relaxed) {
@@ -81,7 +84,7 @@ fn visit(
     }
     let is_dir = || matcher::is_dir(entry.path(), entry.file_type());
     if matcher::is_match(plan, relative(entry.path(), &root.path), is_dir)
-        && tx.send(root.display(entry.path()).to_path_buf()).is_err()
+        && tx.send(Record::new(root.display(entry.path()))).is_err()
     {
         return WalkState::Quit;
     }
