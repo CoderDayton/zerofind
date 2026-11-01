@@ -10,7 +10,10 @@ use scope::SearchRoot;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputFormat {
+    /// Raw bytes, one record per line: for pipes and files.
     Lines,
+    /// Lines with control characters and invalid UTF-8 escaped: for a terminal.
+    Terminal,
     Nul,
 }
 

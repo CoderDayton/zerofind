@@ -84,7 +84,7 @@ a path with no components (`./`). Other roots belong to `--path`.
 
 | Scope | Root | Printed paths |
 |---|---|---|
-| default | the current directory; parents are never walked and the root is not printed | relative, no `./` |
+| default | the current directory; parents are never walked and the root is not printed | relative, no `./` (kept for names starting with `-`) |
 | `--home` | Documents, Desktop, Downloads | absolute |
 | `-p DIR` | `DIR` | as given: `etc/hosts`, `./etc/hosts`, `/etc/hosts` |
 | `-p FILE` | the file alone, matched by its name | as given |
@@ -102,7 +102,8 @@ name you typed.
 | Rule | Default | With `--all` |
 |---|---|---|
 | Hidden entries (name starts with `.`) | skipped | included |
-| `.gitignore`, `.ignore`, `.git/info/exclude`, global git excludes | applied, also outside git repositories and from parent directories of the root | ignored |
+| `.gitignore`, `.git/info/exclude`, global git excludes | applied inside a git repository, including ignore files above the root | ignored |
+| `.ignore` | applied everywhere, including files above the root | ignored |
 | Directories named `.git`, `.svn`, `.hg`, `node_modules`, `target`, `dist`, `build`, `.next` | skipped (list version 1; files with these names are kept) | included |
 | Symlinked directories | printed if they match, never entered | same |
 
@@ -117,7 +118,11 @@ enters `.github`. Only the named component is exempt, and only from the hidden r
 ## Output
 
 One path per line, or per NUL with `-0`. Nothing else is ever written to stdout: no header,
-count, color or quoting. Non-UTF-8 names are written as raw bytes.
+count, color or quoting. Pipes, files and `-0` get raw bytes, non-UTF-8 names included.
+
+When stdout is a terminal, control characters and invalid UTF-8 are shown as `\xNN`
+(`evil\x1b]0;x\x07.txt`), so a file name cannot drive the terminal. A local result whose name
+starts with `-` keeps its `./` (`./-rf`), so `zf rf | xargs rm` cannot pass `rm` an option.
 
 Results are written as they are found. Records collect in a 32 KiB buffer while more are queued,
 and the buffer is flushed whenever the queue runs dry, so a lone match is visible immediately.
@@ -131,7 +136,8 @@ Order is unspecified and varies between runs.
 | 1 | no matches (stdout and stderr are empty) |
 | 2 | bad option or query, or the root cannot be read |
 | 3 | some entries could not be read; everything readable was still searched and printed |
-| 130 | interrupted by Ctrl+C; only whole paths were written |
+| 130 | interrupted by Ctrl+C; only whole paths were written. A second Ctrl+C exits at once, for a walk stuck on slow storage |
 
 Diagnostics go to stderr as one line each, `zf: <path>: <reason>`, printed when they happen. A
-malformed ignore rule prints `zf: warning: ...` and does not change the status.
+malformed ignore rule prints `zf: warning: ...` and does not change the status. If stderr is
+closed (`2>&1 | head -1`), diagnostics are dropped and the search finishes normally.

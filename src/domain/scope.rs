@@ -43,12 +43,15 @@ impl SearchRoot {
         })
     }
 
-    /// The path as it should be printed: local results lose their leading `./`.
+    /// The path as it should be printed: local results lose their leading `./`, unless the
+    /// rest starts with `-` and would read as an option to the next command.
     pub fn display<'a>(&self, entry: &'a Path) -> &'a Path {
-        if self.local {
-            entry.strip_prefix(".").unwrap_or(entry)
-        } else {
-            entry
+        if !self.local {
+            return entry;
+        }
+        match entry.strip_prefix(".") {
+            Ok(rel) if !rel.as_os_str().as_encoded_bytes().starts_with(b"-") => rel,
+            _ => entry,
         }
     }
 }

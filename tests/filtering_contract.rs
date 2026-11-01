@@ -68,7 +68,7 @@ fn symlink_to_directory_is_excluded_like_one() {
 #[test]
 fn malformed_ignore_file_warns_without_partial_status() {
     // `a{b` is an unclosed alternate group; globset rejects it.
-    let t = Tree::with(&["app/src/main.rs"]);
+    let t = Tree::with(&["app/src/main.rs", ".git/"]);
     t.file(".gitignore", "a{b\n");
     t.file("app/src/.gitignore", "a{b\n");
     for cwd in [t.join("app"), t.path().to_path_buf()] {
@@ -81,11 +81,33 @@ fn malformed_ignore_file_warns_without_partial_status() {
 
 #[test]
 fn ignore_rules_from_parent_directories_apply() {
-    let t = Tree::with(&["app/secret.key", "app/main.rs"]);
+    let t = Tree::with(&["app/secret.key", "app/main.rs", ".git/"]);
     t.file(".gitignore", "*.key\n");
     let out = zf(&t.join("app"), &["e"]);
     assert_eq!(out.lines(), set(&[]), "parent .gitignore hides secret.key");
     assert_eq!(zf(&t.join("app"), &[".rs"]).lines(), set(&["main.rs"]));
+}
+
+#[test]
+fn gitignore_outside_a_git_repository_is_not_applied() {
+    // A dotfiles-style `~/.gitignore` of `*` must not hide everything below it.
+    let t = Tree::with(&["Documents/notes/report.txt"]);
+    t.file(".gitignore", "*\n");
+    assert_eq!(
+        zf(&t.join("Documents"), &["report"]).lines(),
+        set(&["notes/report.txt"])
+    );
+    assert_eq!(
+        zf(t.path(), &["report"]).lines(),
+        set(&["Documents/notes/report.txt"])
+    );
+}
+
+#[test]
+fn dot_ignore_applies_outside_a_git_repository() {
+    let t = Tree::with(&["app/secret.key", "app/main.rs"]);
+    t.file(".ignore", "*.key\n");
+    assert_eq!(zf(&t.join("app"), &["e"]).lines(), set(&[]));
 }
 
 #[test]

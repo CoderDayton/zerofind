@@ -46,7 +46,7 @@ fn write_all<R: AsRef<[u8]>, W: Write>(
     any: &mut bool,
 ) -> io::Result<Ending> {
     let sep = match format {
-        OutputFormat::Lines => b'\n',
+        OutputFormat::Lines | OutputFormat::Terminal => b'\n',
         OutputFormat::Nul => b'\0',
     };
     let mut out = BufWriter::with_capacity(32 * 1024, out);
@@ -67,10 +67,37 @@ fn write_all<R: AsRef<[u8]>, W: Write>(
             out.flush()?;
             return Ok(Ending::Interrupted);
         }
-        out.write_all(record.as_ref())?;
+        match format {
+            OutputFormat::Terminal => write_escaped(&mut out, record.as_ref())?,
+            OutputFormat::Lines | OutputFormat::Nul => out.write_all(record.as_ref())?,
+        }
         out.write_all(&[sep])?;
         *any = true;
     }
     out.flush()?;
     Ok(Ending::Drained)
+}
+
+/// Writes `bytes` as valid UTF-8 without control characters: those and invalid bytes become
+/// `\xNN`, so a file name cannot drive the terminal.
+fn write_escaped(out: &mut impl Write, bytes: &[u8]) -> io::Result<()> {
+    for chunk in bytes.utf8_chunks() {
+        let valid = chunk.valid();
+        let mut start = 0;
+        for (i, c) in valid.char_indices() {
+            if c.is_control() {
+                let end = i + c.len_utf8();
+                out.write_all(&valid.as_bytes()[start..i])?;
+                hex(out, &valid.as_bytes()[i..end])?;
+                start = end;
+            }
+        }
+        out.write_all(&valid.as_bytes()[start..])?;
+        hex(out, chunk.invalid())?;
+    }
+    Ok(())
+}
+
+fn hex(out: &mut impl Write, bytes: &[u8]) -> io::Result<()> {
+    bytes.iter().try_for_each(|b| write!(out, "\\x{b:02x}"))
 }

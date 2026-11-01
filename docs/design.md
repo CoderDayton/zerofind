@@ -70,6 +70,8 @@ found.
 
 The writer owns broken-pipe handling (quiet exit 0). Ctrl+C sets a flag that stops workers at
 their next entry and stops the writer before its next record, so only whole records reach stdout.
+A worker blocked in a slow `readdir` or `stat` never sees that flag, so a second Ctrl+C exits at
+once. The Ctrl+C flag is the only process-wide state; each search has its own stop flag.
 
 ## Records travel inline
 
@@ -86,6 +88,9 @@ Bad queries, bad roots and output failures are `ZfError` values; recoverable wal
 counted, not thrown. Only `lib::run` turns them into text and an exit status, so the same mapping
 holds everywhere: 2 for anything that stops a search before it starts, 3 when some entries could
 not be read, 130 on interrupt.
+
+All stderr output goes through `output::diag`, which ignores write failures: a closed stderr
+must not crash a worker or change the result.
 
 ## Invariants
 

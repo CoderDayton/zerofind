@@ -4,7 +4,7 @@
 
 Find files by name, extension, or path without learning flags.
 
-![Rust 2024](https://img.shields.io/badge/rust-2024%20edition-orange)
+![Rust 1.88+](https://img.shields.io/badge/rust-1.88%2B%20%C2%B7%202024%20edition-orange)
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 
 </div>
@@ -37,13 +37,15 @@ tests/query_contract.rs
   with none on the same tree, and 7.6–7.8 MB when the reader is slow.
 - **Fixed query grammar**: the mode comes from the query text before the walk and never changes
   because nothing matched.
-- **Conservative defaults**: hidden entries, `.gitignore`/`.ignore` rules (also outside git
-  repositories and from parent directories) and 8 build/VCS directory names are skipped and
-  pruned before descent. `--all` lifts all of them.
+- **Conservative defaults**: hidden entries, `.gitignore` rules inside git repositories, `.ignore`
+  rules everywhere (both also from parent directories) and 8 build/VCS directory names are
+  skipped and pruned before descent. `--all` lifts all of them.
 - **Stays in bounds**: never follows a symlinked directory, never climbs above the search root,
   never reads file contents.
-- **Pipe-safe**: stdout carries paths only; `-0` uses NUL separators; a closed pipe exits 0
-  quietly; Ctrl+C exits 130 with only whole paths written.
+- **Pipe-safe**: stdout carries paths only; `-0` uses NUL separators; names starting with `-`
+  keep their `./`; a closed pipe exits 0 quietly; Ctrl+C exits 130 with only whole paths written.
+- **Terminal-safe**: on a terminal, control characters in names print as `\xNN`, so a file name
+  cannot drive the terminal.
 - **Small**: 1.9 MB stripped binary, about 3–7 ms to start in an empty directory.
 
 ## Usage

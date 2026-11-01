@@ -11,19 +11,28 @@ use super::matcher;
 use super::record::Record;
 use crate::domain::SearchPlan;
 use crate::domain::scope::{RootKind, SearchRoot};
+use crate::output::diag;
 
 const MAX_THREADS: usize = 8;
 
-/// Shared run state: `stop` ends the walk early; `errors` counts recoverable failures.
+/// Shared run state: `stop` ends this walk early, `interrupted` is the process-wide Ctrl+C
+/// flag, and `errors` counts recoverable failures.
 pub struct Control<'a> {
     pub stop: &'a AtomicBool,
+    pub interrupted: &'a AtomicBool,
     pub errors: &'a AtomicUsize,
+}
+
+impl Control<'_> {
+    fn halted(&self) -> bool {
+        self.stop.load(Ordering::Relaxed) || self.interrupted.load(Ordering::Relaxed)
+    }
 }
 
 pub fn run(plan: &SearchPlan, tx: SyncSender<Record>, ctl: &Control<'_>) {
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get().min(MAX_THREADS));
     for root in &plan.roots {
-        if ctl.stop.load(Ordering::Relaxed) {
+        if ctl.halted() {
             return;
         }
         match root.kind {
@@ -60,24 +69,24 @@ fn visit(
     tx: &SyncSender<Record>,
     ctl: &Control<'_>,
 ) -> WalkState {
-    if ctl.stop.load(Ordering::Relaxed) {
+    if ctl.halted() {
         return WalkState::Quit;
     }
     let entry = match result {
         Ok(entry) => entry,
         Err(err) if is_rule_error(&err) => {
-            eprintln!("zf: warning: {}", describe(&err, root));
+            diag::warning(describe(&err, root));
             return WalkState::Continue;
         }
         Err(err) => {
             ctl.errors.fetch_add(1, Ordering::Relaxed);
-            eprintln!("zf: {}", describe(&err, root));
+            diag::error(describe(&err, root));
             return WalkState::Continue;
         }
     };
     // Ignore-file problems in a walked directory ride on its entry rather than arriving as `Err`.
     if let Some(err) = entry.error() {
-        eprintln!("zf: warning: {}", describe(err, root));
+        diag::warning(describe(err, root));
     }
     if entry.depth() == 0 {
         return WalkState::Continue;

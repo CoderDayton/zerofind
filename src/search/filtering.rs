@@ -24,7 +24,9 @@ pub fn walker(root: &SearchRoot, plan: &SearchPlan, threads: usize) -> WalkParal
         .git_ignore(rules)
         .git_global(rules)
         .git_exclude(rules)
-        .require_git(false)
+        // Git rules only inside a repository: a dotfiles `~/.gitignore` of `*` must not hide
+        // everything below it. `.ignore` files apply everywhere.
+        .require_git(true)
         .ignore_case_insensitive(false)
         .follow_links(false)
         .same_file_system(false)

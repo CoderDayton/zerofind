@@ -67,6 +67,45 @@ fn record_is_delivered_promptly_when_the_walk_stalls() {
     handle.join().unwrap();
 }
 
+fn drain_all(format: OutputFormat, records: &[&[u8]]) -> Vec<u8> {
+    let (tx, rx) = sync_channel(16);
+    for r in records {
+        tx.send(r.to_vec()).unwrap();
+    }
+    drop(tx);
+    let mut out = Vec::new();
+    writer::drain(rx, &mut out, format, &AtomicBool::new(false)).unwrap();
+    out
+}
+
+#[test]
+fn terminal_output_escapes_control_characters() {
+    // A file name must not be able to drive the terminal (title, clipboard, cursor).
+    let out = drain_all(
+        OutputFormat::Terminal,
+        &[
+            b"evil\x1b]0;pwned\x07.txt",
+            b"a\nb",
+            "caf\u{e9}-\u{9b}x".as_bytes(),
+            b"bad\xffname",
+            b"src/main.rs",
+        ],
+    );
+    assert_eq!(
+        String::from_utf8(out).unwrap(),
+        "evil\\x1b]0;pwned\\x07.txt\na\\x0ab\ncaf\u{e9}-\\xc2\\x9bx\nbad\\xffname\nsrc/main.rs\n"
+    );
+}
+
+#[test]
+fn piped_output_stays_raw() {
+    let raw: &[u8] = b"evil\x1b]0;pwned\x07.txt";
+    assert_eq!(
+        drain_all(OutputFormat::Lines, &[raw]),
+        [raw, b"\n"].concat()
+    );
+}
+
 /// Enough long-named matches to overflow a pipe buffer several times.
 fn wide_tree(n: usize) -> Tree {
     let t = Tree::new();
@@ -91,6 +130,16 @@ fn paths_only_relative_without_dot_slash() {
     );
     assert_eq!(out.lines(), set(&["src/main.rs", "examples/main.rs"]));
     assert!(out.stderr.is_empty());
+}
+
+#[test]
+fn local_name_starting_with_dash_keeps_dot_slash() {
+    // `zf rf | xargs rm` must not hand `rm` an option.
+    let t = Tree::with(&["-rf", "x-rf.txt", "sub/-rf"]);
+    assert_eq!(
+        zf(t.path(), &["rf"]).lines(),
+        set(&["./-rf", "x-rf.txt", "sub/-rf"])
+    );
 }
 
 #[cfg(unix)] // Windows forbids newlines in file names
@@ -145,20 +194,17 @@ fn interrupt_emits_only_whole_paths_and_exits_130() {
         .stderr(Stdio::null())
         .spawn()
         .unwrap();
-    // The writer is now blocked on a full pipe.
-    std::thread::sleep(std::time::Duration::from_millis(300));
+    // The first record proves the Ctrl+C handler is installed; the unread rest keeps the
+    // writer blocked on a full pipe, so the walk cannot finish first.
+    let mut out = BufReader::new(child.stdout.take().unwrap());
+    let mut stdout = String::new();
+    out.read_line(&mut stdout).unwrap();
     let kill = std::process::Command::new("kill")
         .args(["-INT", &child.id().to_string()])
         .status()
         .unwrap();
     assert!(kill.success());
-    let mut stdout = String::new();
-    child
-        .stdout
-        .take()
-        .unwrap()
-        .read_to_string(&mut stdout)
-        .unwrap();
+    out.read_to_string(&mut stdout).unwrap();
     let status = child.wait().unwrap();
     assert_eq!(status.code(), Some(130));
     let lines: Vec<_> = stdout.lines().collect();
@@ -166,6 +212,38 @@ fn interrupt_emits_only_whole_paths_and_exits_130() {
     for line in lines {
         assert!(t.join(line).is_file(), "whole path record: {line:?}");
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn closed_stderr_does_not_crash() {
+    // `zf x 2>&1 | head -1`: once `head` exits, every diagnostic hits a closed pipe.
+    use std::os::unix::fs::PermissionsExt;
+    let t = Tree::new();
+    let locked: Vec<_> = (0..50).map(|i| t.dir(&format!("locked{i}"))).collect();
+    for d in &locked {
+        std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o000)).unwrap();
+    }
+    if std::fs::read_dir(&locked[0]).is_ok() {
+        eprintln!("skipped: running with permission override (root)");
+        return;
+    }
+    let (mut cmd, _home) = zf_cmd(t.path(), &["nomatch"]);
+    let mut child = cmd
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    drop(child.stderr.take());
+    let status = child.wait().unwrap();
+    for d in &locked {
+        std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    assert_eq!(
+        status.code(),
+        Some(3),
+        "diagnostics are dropped; the search finishes"
+    );
 }
 
 #[cfg(unix)]

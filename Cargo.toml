@@ -2,6 +2,8 @@
 name = "zerofind"
 version = "0.1.0"
 edition = "2024"
+# globset/ignore need 1.88; CI checks this version.
+rust-version = "1.88"
 license = "MIT"
 
 [[bin]]
