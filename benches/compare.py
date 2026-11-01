@@ -19,13 +19,53 @@ import subprocess
 import tempfile
 import time
 
-# fd flags that approximate zf's default policy: case-insensitive, git rules inside repos only,
-# and zf's generated directories. fd cannot check zf's markers (Cargo.toml beside target/, ...),
-# so the match-set check fails on trees with an unmarked target/, build/, dist/, out/,
-# coverage/ or vendor/; hidden ones fd skips anyway.
-FD_COMMON = ["--color", "never", "-i",
-             "-E", "node_modules", "-E", "__pycache__", "-E", "target", "-E", "dist",
-             "-E", "build", "-E", "out", "-E", "coverage", "-E", "vendor"]
+# fd flags matching zf's defaults: case-insensitive, git rules inside repos only, hidden
+# entries skipped. zf's generated directories depend on marker files fd cannot check, so they
+# are found per tree (skipped_dirs) and passed to fd as anchored excludes.
+FD_COMMON = ["--color", "never", "-i"]
+
+# Mirrors ALWAYS_SKIPPED and SKIPPED_BESIDE in src/domain/policy.rs.
+ALWAYS_SKIPPED = {".git", ".svn", ".hg", ".next", "node_modules", "__pycache__"}
+MANIFESTS = ["package.json", "pyproject.toml", "setup.py", "CMakeLists.txt", "Makefile",
+             "meson.build", "build.gradle", "build.gradle.kts", "pom.xml", "go.mod",
+             "Cargo.toml"]
+SKIPPED_BESIDE = {
+    "target": ["Cargo.toml", "pom.xml"],
+    "build": MANIFESTS, "dist": MANIFESTS, "out": MANIFESTS, "coverage": MANIFESTS,
+    "vendor": ["go.mod", "composer.json"],
+}
+
+
+def is_generated(parent, name):
+    if name in ALWAYS_SKIPPED:
+        return True
+    if any(os.path.lexists(os.path.join(parent, m)) for m in SKIPPED_BESIDE.get(name, ())):
+        return True
+    return ("env" in name.lower()
+            and os.path.lexists(os.path.join(parent, name, "pyvenv.cfg")))
+
+
+def skipped_dirs(root):
+    """Root-relative paths of the directories zf skips as generated. Hidden directories are
+    not entered: both tools skip them. Symlinked directories are checked, never entered."""
+    found = []
+    for parent, dirnames, _ in os.walk(root):
+        keep = []
+        for d in dirnames:
+            if d.startswith("."):
+                continue
+            if is_generated(parent, d):
+                found.append(os.path.relpath(os.path.join(parent, d), root))
+            elif not os.path.islink(os.path.join(parent, d)):
+                keep.append(d)
+        dirnames[:] = keep
+    return found
+
+
+def fd_excludes(root):
+    # A leading '/' anchors the glob at the search root; glob metacharacters are escaped.
+    esc = lambda p: "".join("\\" + c if c in "*?[]{}\\!" else c for c in p)
+    return [arg for p in skipped_dirs(root) for arg in ("-E", "/" + esc(p))]
 
 def queries(name):
     return [
@@ -97,14 +137,16 @@ def main():
     fd = shutil.which("fd")
     fd_extra = ["-j", str(args.fd_threads)] if args.fd_threads else []
 
-    print(f"{args.dir}  (median of {args.runs}; ms, ms to first result, peak MB)")
+    excludes = fd_excludes(args.dir)
+    print(f"{args.dir}  (median of {args.runs}; ms, ms to first result, peak MB; "
+          f"{len(excludes) // 2} generated dirs excluded for fd)")
     print(f"{'query':<6} {'matches':>8}  {'zf wall':>8} {'first':>7} {'rss':>6}  "
           f"{'fd wall':>8} {'first':>7} {'rss':>6}")
     with tempfile.TemporaryDirectory() as empty:
         bench("true", ["true"], ["true"], empty, args.runs)
         bench("start", [zf, "x"], [fd, *FD_COMMON, *fd_extra, "-F", "x"], empty, args.runs * 5)
     for label, zq, fq in queries(args.name):
-        bench(label, [zf, *zq], [fd, *FD_COMMON, *fd_extra, *fq], args.dir, args.runs)
+        bench(label, [zf, *zq], [fd, *FD_COMMON, *excludes, *fd_extra, *fq], args.dir, args.runs)
 
 
 if __name__ == "__main__":

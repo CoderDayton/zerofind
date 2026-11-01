@@ -28,8 +28,9 @@ platforms are unmeasured.**
 - `benches/peakrss.c` launches each run and reports wall time and peak RSS via `wait4`. Launching
   from Python directly would floor every RSS reading at the Python process's ~14 MB.
 - Time to first result is measured from the harness's spawn to the first byte on the pipe.
-- `fd` runs with `--no-require-git -i` and `-E` for `zf`'s excluded directories, so both apply the
-  same filtering; it keeps its default thread count (32) unless noted.
+- `fd` runs with `-i` and one anchored `-E` per directory `zf` skips as generated, found by
+  walking the tree with the same marker rules first, so both apply the same filtering; it keeps
+  its default thread count (32) unless noted.
 - The page cache is warm; dropping it needs root.
 
 Reproduce:
