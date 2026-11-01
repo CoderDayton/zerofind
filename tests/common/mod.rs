@@ -65,13 +65,22 @@ impl Out {
     pub fn lines(&self) -> BTreeSet<String> {
         String::from_utf8_lossy(&self.stdout)
             .lines()
-            .map(str::to_owned)
+            .map(norm)
             .collect()
     }
 }
 
 pub fn set(items: &[&str]) -> BTreeSet<String> {
-    items.iter().map(|s| s.to_string()).collect()
+    items.iter().map(|s| norm(s)).collect()
+}
+
+/// Windows prints native `\` separators; expectations are written with `/`.
+fn norm(path: &str) -> String {
+    if cfg!(windows) {
+        path.replace('\\', "/")
+    } else {
+        path.to_owned()
+    }
 }
 
 /// A `zf` command in `cwd` with a private, empty HOME so user-level git ignore rules and

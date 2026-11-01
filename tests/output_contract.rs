@@ -93,6 +93,7 @@ fn paths_only_relative_without_dot_slash() {
     assert!(out.stderr.is_empty());
 }
 
+#[cfg(unix)] // Windows forbids newlines in file names
 #[test]
 fn print0_preserves_newline_in_name() {
     let t = Tree::with(&["a\nmain.txt", "b-main.txt"]);
@@ -198,7 +199,8 @@ fn repeat_gives_same_match_set() {
     assert_eq!(a.lines(), b.lines());
 }
 
-#[cfg(unix)]
+// macOS (APFS) rejects file names that are not valid UTF-8.
+#[cfg(target_os = "linux")]
 #[test]
 fn non_utf8_name_is_emitted_raw() {
     use std::ffi::OsStr;

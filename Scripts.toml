@@ -34,6 +34,15 @@ info = "Full test suite"
 include = ["fmt", "clippy", "test"]
 info = "fmt + clippy + tests: the gate before every commit"
 
+[scripts.check-windows]
+interpreter = "bash"
+command = '''
+rustup target list --installed | grep -qx x86_64-pc-windows-gnu || rustup target add x86_64-pc-windows-gnu
+timeout 600 cargo clippy --quiet --all-targets --target x86_64-pc-windows-gnu -- -D warnings
+'''
+info = "Type-check and lint every target for Windows (no linking, so no MinGW needed)"
+requires = ["rustup"]
+
 [scripts.bench]
 interpreter = "bash"
 command = '''

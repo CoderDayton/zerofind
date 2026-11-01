@@ -5,6 +5,7 @@
 Find files by name, extension, or path without learning flags.
 
 ![Rust 2024](https://img.shields.io/badge/rust-2024%20edition-orange)
+![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 
 </div>
 
@@ -89,7 +90,7 @@ through `sort` when it matters. Every rule, edge case and diagnostic is in the
 | Repeated whole-disk lookups | `plocate` | `zf` keeps no index; each run walks the tree |
 | Output-bound runs (100k+ matches to `/dev/null`) | `fd` | `fd` measured 18.9 ms vs 20.9 ms for `zf` |
 | Sorted or ranked output | `zf ... \| sort`, `fzf` | Matching is binary and order is unspecified |
-| Windows or macOS | `fd` | Untested: the suite and benchmarks have only run on Linux |
+| Windows or macOS | `fd` | Not yet run there: the Windows build type-checks and CI covers both, but tests and benchmarks have only run on Linux |
 
 ## Benchmarks
 
@@ -119,6 +120,7 @@ Windows and network mounts.
 
 ```bash
 cgs check                  # fmt + clippy + full test suite
+cgs check-windows          # type-check and lint every target for Windows
 cgs run t symlink          # tests whose names contain a filter
 ```
 
@@ -131,3 +133,7 @@ the Python parent's footprint).
 - [Design](docs/design.md): pipeline, module boundaries, and why each choice was made
 - [Performance](docs/performance.md): method, results, cost model, limits
 - [Decision 0001](docs/decisions/0001-v1-behavior-choices.md): edge-case behavior and the tests that pin it
+
+## License
+
+MIT, see [LICENSE](LICENSE).

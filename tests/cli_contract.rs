@@ -1,7 +1,9 @@
 //! Command line, search scopes and errors, through the binary.
 
 mod common;
-use common::{Tree, run, set, zf, zf_cmd};
+use common::{Tree, set, zf};
+#[cfg(unix)]
+use common::{run, zf_cmd};
 
 #[test]
 fn help_lists_the_minimal_interface() {
@@ -85,6 +87,8 @@ fn root_itself_is_not_emitted() {
     assert_eq!(zf(&t.join("main"), &["main"]).code, 1);
 }
 
+// The fixture is an XDG user-dirs file, which only Linux reads.
+#[cfg(target_os = "linux")]
 #[test]
 fn home_searches_only_configured_user_folders() {
     let home = Tree::with(&[
@@ -110,6 +114,8 @@ fn home_searches_only_configured_user_folders() {
     );
 }
 
+// Windows resolves user folders through the shell API, not HOME.
+#[cfg(unix)]
 #[test]
 fn home_without_user_folders_is_a_scope_error() {
     let home = Tree::with(&["report.txt"]);
