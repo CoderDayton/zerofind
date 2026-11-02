@@ -8,7 +8,7 @@ use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use common::{Tree, set, zf, zf_cmd};
+use common::{Tree, norm, set, zf, zf_cmd};
 use zerofind::domain::OutputFormat;
 use zerofind::output::sink::{self, CAP, Closed, Ending, Sink};
 
@@ -329,7 +329,7 @@ fn broken_pipe_is_quiet_success() {
     BufReader::new(child.stdout.take().unwrap())
         .read_line(&mut first)
         .unwrap();
-    assert!(first.starts_with("bulk/match-"));
+    assert!(norm(&first).starts_with("bulk/match-"), "{first:?}");
     let status = child.wait().unwrap();
     let mut stderr = String::new();
     child
