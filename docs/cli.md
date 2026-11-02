@@ -194,9 +194,10 @@ For debugging, `ZF_TRACE=1` adds one line per walked directory root when its wal
 changes nothing else:
 
 ```text
-zf: trace: /home/me/src: workers=16 dirs=7648 entries=258618 waits=15 ms=22.9
+zf: trace: .: workers=16 dirs=7648 entries=258618 waits=15 ms=22.9
 ```
 
-`workers` counts the workers started (the walk adds them as the tree widens), `dirs` the
+The root is printed as resolved: `.` for the current directory, as typed for `-p`, the full path
+for a location or `--home`. `workers` counts the workers started (the walk adds them as the tree widens), `dirs` the
 directories read, `entries` the entries they listed, `waits` how often a worker found no work
 and slept, and `ms` the walk's wall time.

@@ -25,6 +25,25 @@ fn field(out: &Out, key: &str) -> usize {
 }
 
 #[test]
+fn trace_prints_one_line_per_directory_root() {
+    let t = Tree::with(&["a/x", "b/x", "f"]);
+    let (mut cmd, _home) = zf_cmd(t.path(), &["x", "-p", "a", "-p", "b", "-p", "f"]);
+    cmd.env("ZF_TRACE", "1");
+    let out = run(&mut cmd);
+    let roots: Vec<_> = out
+        .stderr
+        .lines()
+        .map(|l| l.split(": ").nth(2).unwrap_or(l))
+        .collect();
+    assert_eq!(
+        roots,
+        ["a", "b"],
+        "a file root is not walked: {}",
+        out.stderr
+    );
+}
+
+#[test]
 fn trace_reports_the_walk_on_stderr_only() {
     let t = Tree::with(&["a/x.rs", "a/b/y.rs", "c.rs"]);
     let plain = zf(t.path(), &[]);
