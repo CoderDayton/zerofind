@@ -26,7 +26,7 @@ jobs:
       - name: Lint
         run: cargo clippy --locked --all-targets -- -D warnings
       - name: Test
-        run: cargo test --locked
+        run: cargo test --locked --no-fail-fast
 
   msrv:
     runs-on: ubuntu-latest

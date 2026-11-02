@@ -75,7 +75,7 @@ pub fn set(items: &[&str]) -> BTreeSet<String> {
 }
 
 /// Windows prints native `\` separators; expectations are written with `/`.
-fn norm(path: &str) -> String {
+pub fn norm(path: &str) -> String {
     if cfg!(windows) {
         path.replace('\\', "/")
     } else {

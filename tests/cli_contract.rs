@@ -1,7 +1,7 @@
 //! Command line, search scopes and errors, through the binary.
 
 mod common;
-use common::{Tree, set, zf};
+use common::{Tree, norm, set, zf};
 #[cfg(unix)]
 use common::{run, zf_cmd};
 
@@ -111,7 +111,7 @@ fn absolute_location_becomes_the_root() {
         "other/report.txt",
     ]);
     let dl = t.join("Downloads");
-    let abs = |rel: &str| t.join(rel).to_string_lossy().into_owned();
+    let abs = |rel: &str| norm(&t.join(rel).to_string_lossy());
     let both = [
         abs("Downloads/report.pdf"),
         abs("Downloads/old/report-1.txt"),
