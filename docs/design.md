@@ -75,7 +75,7 @@ is printed and then skipped (`WalkState::Skip`): `zf node_modules` does not walk
 
 Workers never write to stdout. They send matches into a channel of 1,024 records; one writer
 drains it into a 32 KiB buffer and flushes whenever the channel is momentarily empty. A slow
-reader fills the channel and blocks the workers, so memory stays at 7.5–8.5 MB from 0 to 100,000
+reader fills the channel and blocks the workers, so memory stays at 6.8–7.7 MB from 0 to 100,000
 matches. There is no sorting or collection stage, so the first match is written as soon as it is
 found.
 

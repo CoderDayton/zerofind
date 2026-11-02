@@ -34,8 +34,9 @@ tests/query_contract.rs
 
 - **First result in 2–8 ms** on every benchmark tree, up to 845,000 entries; results are never
   collected or sorted. [Design](docs/design.md) explains the pipeline.
-- **Memory does not grow with matches**: peak RSS is 7.5–7.7 MB with 100,000 matches and 8.2 MB
-  with none on the same tree, and 7.6–7.8 MB when the reader is slow.
+- **Memory does not grow with matches**: peak RSS is 7.1 MB (at most 7.7) with 100,000 matches
+  and 7.1 MB (at most 7.6) with none on the same tree, and 6.8 MB (at most 7.4) when the reader
+  is slow.
 - **Fixed query grammar**: each word's mode comes from its text before the walk and never
   changes because nothing matched.
 - **Conservative defaults**: hidden entries, `.gitignore` rules inside git repositories, `.ignore`

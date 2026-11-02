@@ -8,6 +8,7 @@ limits them.
 - [Output-bound runs](#output-bound-runs)
 - [Memory](#memory)
 - [Start-up and build profile](#start-up-and-build-profile)
+- [Worker count](#worker-count)
 - [Cost model](#cost-model)
 - [Limits](#limits)
 
@@ -78,13 +79,17 @@ that is read (the generated flat row above) `zf` is ahead, 21.5 ms vs 27.5 ms.
 
 ## Memory
 
-Peak RSS on the generated flat tree is the same whatever the match count and reader speed:
+Peak RSS on the generated flat tree is the same whatever the match count and reader speed
+(`zzz`, `m1` and `m`; median of 10 runs with a fast reader and 5 with a slow one, maximum in
+parentheses):
 
 | Matches | Fast reader | Slow reader (sleeps 0.5 ms per 4 KiB) |
 |---:|---:|---:|
-| 0 | 8.2 MB | n/a |
-| 11,200 | 7.9 MB | 7.6 MB |
-| 100,000 | 7.7 MB | 7.8 MB |
+| 0 | 7.1 MB (7.6) | n/a |
+| 11,200 | 7.2 MB (7.6) | 7.0 MB (7.4) |
+| 100,000 | 7.1 MB (7.7) | 6.8 MB (7.4) |
+
+The slow reader stretches the 100,000-match run to 186 ms without raising memory.
 
 The bounded queue blocks workers when the reader falls behind, so memory tracks the queue size,
 not the result count. Memory does grow with tree size, independent of matches: the 258,714-entry
@@ -95,15 +100,42 @@ toolchain tree peaks at 23–28 MB.
 `zf` in an empty directory takes 2.6–7.7 ms across sessions (4.3–4.5 MB peak); `fd` 15–33 ms
 with 32 threads and about 7 ms with 8 (54 MB).
 
-The release profile uses fat LTO, one codegen unit and stripped symbols:
+The release profile uses fat LTO, one codegen unit and stripped symbols. Two alternating rounds
+per profile (start-up median of 25 runs, walks median of 15; ranges span the rounds):
 
 | Profile | Start-up | Walk only, 100k entries | 100k matches | Binary |
 |---|---:|---:|---:|---:|
-| cargo default | 6.8 ms | 15.8–16.0 ms | 21.3–21.6 ms | 3.04 MB |
-| LTO + 1 CGU + strip | 4.4–4.5 ms | 14.5–15.1 ms | 21.0–21.3 ms | 1.89 MB |
+| cargo default | 4.9–6.8 ms | 17.0–17.6 ms | 21.8–21.9 ms | 3.19 MiB |
+| LTO + 1 CGU + strip | 6.1–6.5 ms | 16.9–17.1 ms | 21.2–21.6 ms | 2.02 MiB |
 
-The cost is build time: an incremental release rebuild goes from 0.6 s to 8.5 s. Debug and test
-builds are unaffected.
+The start-up difference is within run-to-run noise; the walks gain under 1 ms. The clear gain is
+a 37% smaller binary. The cost is build time: an incremental release rebuild goes from
+0.55–0.67 s to 8.6 s. Debug and test builds are unaffected.
+
+## Worker count
+
+`zf` walks with `min(cores, 8)` workers. Builds capped at 2, 4, 8, 16 and 32 workers, run
+round-robin for 15 rounds per tree (median wall time; every build returned the same results):
+
+| Tree (matches) | 2 | 4 | 8 | 16 | 32 |
+|---|---:|---:|---:|---:|---:|
+| empty directory (start-up) | 5.4 ms | 5.5 ms | 5.5 ms | 6.8 ms | 7.9 ms |
+| zerofind repo `.rs` (22) | 8.4 ms | 7.6 ms | 8.2 ms | 8.3 ms | 10.3 ms |
+| `~/.cargo/registry/src` `.rs` (21,589) | 35.2 ms | 22.0 ms | 14.8 ms | 12.7 ms | 31.3 ms |
+| `~/.rustup/toolchains` `.rs` (5,854) | 71.8 ms | 47.8 ms | 33.0 ms | 30.1 ms | 35.0 ms |
+| projects folder `main` (72) | 24.0 ms | 16.5 ms | 11.0 ms | 9.5 ms | 11.6 ms |
+| generated flat `m` (100,000) | 47.8 ms | 30.0 ms | 21.4 ms | 26.5 ms | 101.1 ms |
+| generated deep `main` (3,600) | 33.1 ms | 27.9 ms | 25.0 ms | 32.4 ms | 42.3 ms |
+
+Below 8, the large trees slow down 1.4–1.5x at 4 workers and 2.2–2.4x at 2. 16 workers gain 1.5–2.9 ms on the three large
+walks but lose 5 ms on 100,000 matches and 7 ms on the deep tree, start 1.3 ms slower, and peak
+at 33 MB instead of 26 MB on the toolchain tree. 32 workers contend on the single output queue
+and lose everywhere, up to 101 ms on 100,000 matches. Peak memory grows with workers (13, 18,
+26, 33 and 47 MB on the toolchain tree). Time to the first result is 2–6 ms at every count.
+
+Measured on the 32-thread machine with a warm cache. A machine with 8 or fewer cores uses all of
+them. A cold disk or network mount, where workers mostly wait on reads, might favor more; this is
+unmeasured.
 
 ## Cost model
 
@@ -125,6 +157,7 @@ builds are unaffected.
 
 - No index: every run walks the tree, so cost grows with the unpruned tree size. A cold disk or a
   network mount makes the walk, not `zf`, the bottleneck; this is unmeasured.
-- Worker count is fixed at `min(cores, 8)`. More threads helped `fd` on output-bound runs but cost
-  it 100 MB of memory and 8–25 ms of start-up.
+- Worker count is fixed at `min(cores, 8)`, the best overall count in the
+  [sweep](#worker-count); large walks would gain 9–14% from 16 workers, at a cost on
+  result-heavy and deep trees.
 - Writing to the terminal is bounded by the terminal emulator, not by `zf`.
