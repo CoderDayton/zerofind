@@ -3,12 +3,12 @@
 
 Every query pair is first checked for an identical match set; timings only count when the
 sets agree. Runs alternate zf/fd so drift on a shared machine hits both. The page cache is
-warm (no root to drop it), so "cold start" here means process start, not disk.
+warm unless --cold, which drops it (sudo) before every timed run.
 
 Wall time and peak RSS come from benches/peakrss.c (built by `cgs run bench`); the first-result
 time is taken here and includes the launcher's own start (~1 ms, the same for both tools).
 
-usage: compare.py [--runs N] [--name QUERY] [--zf PATH] [--fd-threads N] DIR
+usage: compare.py [--runs N] [--name QUERY] [--zf PATH] [--fd-threads N] [--cold] DIR
 """
 
 import argparse
@@ -78,8 +78,17 @@ def queries(name):
 PEAKRSS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../target/peakrss")
 
 
-def run_once(cmd, cwd):
+COLD = False
+
+
+def drop_caches():
+    subprocess.run(["sudo", "sh", "-c", "sync; echo 3 > /proc/sys/vm/drop_caches"], check=True)
+
+
+def run_once(cmd, cwd, timed=False):
     """Wall time, time to first output byte, peak RSS (KB) and stdout of one run."""
+    if timed and COLD:
+        drop_caches()
     start = time.perf_counter()
     proc = subprocess.Popen([PEAKRSS, *cmd], cwd=cwd,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -114,7 +123,7 @@ def bench(label, zf_cmd, fd_cmd, cwd, runs):
     samples = {"zf": [], "fd": []}
     for _ in range(runs):
         for tool, cmd in (("zf", zf_cmd), ("fd", fd_cmd)):
-            samples[tool].append(run_once(cmd, cwd)[:3])
+            samples[tool].append(run_once(cmd, cwd, timed=True)[:3])
     row = [f"{label:<6} {len(zs):>8}"]
     for tool in ("zf", "fd"):
         walls = [s[0] for s in samples[tool]]
@@ -132,13 +141,16 @@ def main():
     ap.add_argument("--name", default="main", help="query for the name row")
     ap.add_argument("--zf", default=os.path.join(os.path.dirname(__file__), "../target/release/zf"))
     ap.add_argument("--fd-threads", type=int, default=0, help="0 = fd default")
+    ap.add_argument("--cold", action="store_true", help="drop the page cache before each run")
     args = ap.parse_args()
     zf = os.path.abspath(args.zf)
     fd = shutil.which("fd")
     fd_extra = ["-j", str(args.fd_threads)] if args.fd_threads else []
 
     excludes = fd_excludes(args.dir)
-    print(f"{args.dir}  (median of {args.runs}; ms, ms to first result, peak MB; "
+    global COLD
+    COLD = args.cold
+    print(f"{args.dir}  ({'cold cache, ' if COLD else ''}median of {args.runs}; ms, ms to first result, peak MB; "
           f"{len(excludes) // 2} generated dirs excluded for fd)")
     print(f"{'query':<6} {'matches':>8}  {'zf wall':>8} {'first':>7} {'rss':>6}  "
           f"{'fd wall':>8} {'first':>7} {'rss':>6}")

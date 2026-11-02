@@ -149,6 +149,31 @@ fn gitignore_outside_a_git_repository_is_not_applied() {
 }
 
 #[test]
+fn gitignore_applies_inside_a_jj_repository() {
+    // jj reads `.gitignore` too, so a `.jj` directory marks a repository like `.git` does.
+    let t = Tree::with(&["sub/notes.txt", "sub/main.rs"]);
+    t.dir(".jj");
+    t.file(".gitignore", "*.txt\n");
+    assert_eq!(zf(t.path(), &["n"]).lines(), set(&["sub/main.rs"]));
+}
+
+#[test]
+fn relative_worktree_link_resolves_from_the_worktree() {
+    // `git worktree add --relative-paths` writes a `.git` file whose gitdir is relative to the
+    // worktree, not to wherever zf runs.
+    let t = Tree::with(&["main/x.rs", "wt/a.tmp", "wt/b.rs"]);
+    t.file("main/.git/info/exclude", "*.tmp\n");
+    t.file("main/.git/worktrees/wt/commondir", "../..\n");
+    t.file("wt/.git", "gitdir: ../main/.git/worktrees/wt\n");
+    let wt = t.join("wt");
+    let b = wt.join("b.rs");
+    assert_eq!(
+        zf(t.path(), &[wt.to_str().unwrap()]).lines(),
+        set(&[b.to_str().unwrap()])
+    );
+}
+
+#[test]
 fn dot_ignore_applies_outside_a_git_repository() {
     let t = Tree::with(&["app/secret.key", "app/main.rs"]);
     t.file(".ignore", "*.key\n");

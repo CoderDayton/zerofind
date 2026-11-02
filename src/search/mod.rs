@@ -2,4 +2,6 @@
 
 pub mod filtering;
 pub mod matcher;
+pub mod rules;
 pub mod traversal;
+pub mod walk;

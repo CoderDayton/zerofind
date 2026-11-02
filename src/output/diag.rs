@@ -11,3 +11,8 @@ pub fn error(msg: impl Display) {
 pub fn warning(msg: impl Display) {
     let _ = writeln!(io::stderr().lock(), "zf: warning: {msg}");
 }
+
+/// One summary line per walk when `ZF_TRACE=1`.
+pub fn trace(msg: impl Display) {
+    let _ = writeln!(io::stderr().lock(), "zf: trace: {msg}");
+}

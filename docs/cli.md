@@ -131,7 +131,7 @@ you typed.
 | Rule | Default | With `--all` |
 |---|---|---|
 | Hidden entries (name starts with `.`) | skipped | included |
-| `.gitignore`, `.git/info/exclude`, global git excludes | applied inside a git repository, including ignore files above the root | ignored |
+| `.gitignore`, `.git/info/exclude`, global git excludes | applied inside a git or jj repository (a `.git` or `.jj` directory at or above the entry), including ignore files above the root | ignored |
 | `.ignore` | applied everywhere, including files above the root | ignored |
 | Generated directories (below) | skipped | included |
 | Symlinked directories | printed if they match, never entered | same |
@@ -148,6 +148,8 @@ Generated directories are recognized by convention, not by name alone, so a hand
 | any name containing `env` (`venv`, `py-env`) | it holds `pyvenv.cfg` |
 
 Files with these names are kept. Skipped directories are pruned: nothing below them is read.
+This list is part of `zf`'s versioned behavior: any change to it is recorded in the
+[changelog](../CHANGELOG.md).
 `--files` and `--dirs` only filter what is printed; directories are still walked. A symlink
 counts as its target's kind for `--files`, `--dirs`, `dir/` queries and the generated list.
 
@@ -183,6 +185,18 @@ Order is unspecified and varies between runs.
 | 3 | some entries could not be read; everything readable was still searched and printed |
 | 130 | interrupted by Ctrl+C; only whole paths were written. A second Ctrl+C exits at once, for a walk stuck on slow storage |
 
-Diagnostics go to stderr as one line each, `zf: <path>: <reason>`, printed when they happen. A
+Diagnostics go to stderr as one line each, printed when they happen, naming the path and what
+failed: `zf: src/locked: cannot read directory: Permission denied (os error 13)`. A
 malformed ignore rule prints `zf: warning: ...` and does not change the status. If stderr is
 closed (`2>&1 | head -1`), diagnostics are dropped and the search finishes normally.
+
+For debugging, `ZF_TRACE=1` adds one line per walked directory root when its walk ends, and
+changes nothing else:
+
+```text
+zf: trace: /home/me/src: workers=16 dirs=7648 entries=258618 waits=15 ms=22.9
+```
+
+`workers` counts the workers started (the walk adds them as the tree widens), `dirs` the
+directories read, `entries` the entries they listed, `waits` how often a worker found no work
+and slept, and `ms` the walk's wall time.

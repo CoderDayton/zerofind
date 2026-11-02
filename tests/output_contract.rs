@@ -420,8 +420,8 @@ fn unreadable_directory_continues_and_exits_3() {
     assert_eq!(out.lines(), set(&["open/main.txt"]));
     assert_eq!(out.code, 3);
     assert!(
-        out.stderr.contains("locked"),
-        "names the path: {}",
+        out.stderr.contains("locked: cannot read directory: "),
+        "names the path and the operation: {}",
         out.stderr
     );
 }

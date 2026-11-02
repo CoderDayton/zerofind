@@ -6,6 +6,7 @@ How `zf` is built, and the reason behind each choice.
 - [The plan is fixed before the walk](#the-plan-is-fixed-before-the-walk)
 - [Grammar instead of flags](#grammar-instead-of-flags)
 - [Pruning before descent](#pruning-before-descent)
+- [Workers grow with the work](#workers-grow-with-the-work)
 - [One writer, per-worker buffers](#one-writer-per-worker-buffers)
 - [Errors are typed until the edge](#errors-are-typed-until-the-edge)
 - [Invariants](#invariants)
@@ -23,13 +24,17 @@ argv -> cli -> SearchPlan -> traversal: N workers filter + match -> per-worker b
 | `domain::query` | word compilation, name, glob and path matching, what a query names | the filesystem |
 | `domain::scope` | locations, root resolution, `~`, root dedupe | output formatting |
 | `domain::policy` | hidden, generated-directory and result-kind decisions | scheduling |
-| `search::filtering` | walker configuration, pruning | query grammar |
+| `search::filtering` | hidden and generated-directory admission per entry | query grammar |
+| `search::rules` | ignore files across directories, repository boundaries | query words |
 | `search::matcher` | per-entry match and kind | output |
-| `search::traversal` | workers, cancellation, error counting | argument parsing |
+| `search::walk` | worker queues, growth, stealing, termination | the filesystem |
+| `search::traversal` | reading directories, cancellation, error counting | argument parsing |
 | `output::sink` | per-worker buffers, serialization, flushing, broken pipe | matching |
 | `error` | typed failures, exit statuses | search strategy |
 
-`domain` depends on no CLI, traversal or output library, so its tests run on plain values.
+`domain` depends on no CLI, traversal or output library. Query and scope-word tests run on plain
+values; the generated-directory rules check marker files, so their tests build small temporary
+trees.
 
 ## The plan is fixed before the walk
 
@@ -58,24 +63,42 @@ Ambiguous edge cases were settled explicitly in [decision 0001](decisions/0001-v
 
 ## Pruning before descent
 
-Filtering runs in the walker's entry filter, so an excluded directory is never opened. The
-`ignore` crate supplies ignore-file parsing and the parallel walk; every walker option is set
-explicitly in `search::filtering` so a dependency default cannot change behavior unnoticed.
-Hidden and generated-directory filtering is done by `zf`, not the crate, because the crate cannot
-express the exemption for names the query spells.
+Each listed entry is checked before anything else happens to it, so an excluded directory is
+never opened. Ignore rules come first: the `ignore` crate parses each ignore file and matches its
+patterns, and `search::rules` combines the files across directories with the crate's own
+precedence and repository boundaries (`tests/walk_oracle.rs` compares the two on generated
+trees). Hidden and generated-directory filtering is done by `zf` alone, because no ignore file
+can express the exemption for names the query spells.
 
 Generated directories are recognized by a marker beside or inside them (`Cargo.toml` beside
 `target`, `pyvenv.cfg` inside a venv), not by name alone, so personal folders called `build` or
 `dist` stay searchable. The check stats one or two files, and only for directories with a listed
 name, so ordinary entries pay nothing. A directory admitted only because a word spells its name
-is printed and then skipped (`WalkState::Skip`): `zf node_modules` does not walk every package.
+is printed and not entered: `zf node_modules` does not walk every package.
+
+## Workers grow with the work
+
+A walk starts on one worker. After each directory, a worker holding more queued directories
+than sleeping workers can take starts workers for the rest, up to `min(cores, 16)`. A narrow
+tree stays on one or two workers and pays no thread start-up; a wide one reaches the cap after
+its first wide directory, which matters on a cold disk, where each read waits on the device.
+
+Each worker owns a queue and takes its newest job, so it walks its own subtree and reads
+neighbouring directories; an idle worker steals another queue's oldest job, the one farthest
+from what its owner is reading. Files never enter a queue. Idle workers sleep on a condition
+variable and are woken for new work or the end of the walk. The walk is over when no queue
+holds a job and no worker holds one. A panic in any worker ends the walk for all of them.
+
+The `ignore` crate's walker could not do this: it starts a fixed number of threads, polls when
+idle and queues every file. [Decision 0002](decisions/0002-own-walker.md) records the
+measurements and the rejected designs. `ZF_TRACE=1` prints what a walk did.
 
 ## One writer, per-worker buffers
 
 Workers never write to stdout. Each formats its matches into its own 16 KiB buffer; one writer
 swaps a filled buffer for an empty one, copies it into a 32 KiB output buffer, and flushes
 whenever every buffer is empty. A worker whose buffer is full waits for the writer, so a slow
-reader blocks the walk and memory stays at 6.5–7.7 MB from 0 to 100,000 matches. There is no
+reader blocks the walk and memory stays at 3.9–4.6 MB from 0 to 100,000 matches. There is no
 sorting or collection stage, so the first match is written as soon as it is found.
 
 The reason is measured: a shared channel cost about 0.8 µs of CPU per match in handoff alone.
