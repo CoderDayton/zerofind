@@ -6,8 +6,7 @@ How `zf` is built, and the reason behind each choice.
 - [The plan is fixed before the walk](#the-plan-is-fixed-before-the-walk)
 - [Grammar instead of flags](#grammar-instead-of-flags)
 - [Pruning before descent](#pruning-before-descent)
-- [One writer, bounded queue](#one-writer-bounded-queue)
-- [Records travel inline](#records-travel-inline)
+- [One writer, per-worker buffers](#one-writer-per-worker-buffers)
 - [Errors are typed until the edge](#errors-are-typed-until-the-edge)
 - [Invariants](#invariants)
 - [Out of scope](#out-of-scope)
@@ -15,7 +14,7 @@ How `zf` is built, and the reason behind each choice.
 ## Pipeline
 
 ```text
-argv -> cli -> SearchPlan -> traversal: N workers filter + match -> bounded queue -> writer -> stdout
+argv -> cli -> SearchPlan -> traversal: N workers filter + match -> per-worker buffers -> writer -> stdout
 ```
 
 | Module | Owns | Never touches |
@@ -27,7 +26,7 @@ argv -> cli -> SearchPlan -> traversal: N workers filter + match -> bounded queu
 | `search::filtering` | walker configuration, pruning | query grammar |
 | `search::matcher` | per-entry match and kind | output |
 | `search::traversal` | workers, cancellation, error counting | argument parsing |
-| `output::writer` | serialization, flushing, broken pipe | matching |
+| `output::sink` | per-worker buffers, serialization, flushing, broken pipe | matching |
 | `error` | typed failures, exit statuses | search strategy |
 
 `domain` depends on no CLI, traversal or output library, so its tests run on plain values.
@@ -71,27 +70,23 @@ Generated directories are recognized by a marker beside or inside them (`Cargo.t
 name, so ordinary entries pay nothing. A directory admitted only because a word spells its name
 is printed and then skipped (`WalkState::Skip`): `zf node_modules` does not walk every package.
 
-## One writer, bounded queue
+## One writer, per-worker buffers
 
-Workers never write to stdout. They send matches into a channel of 1,024 records; one writer
-drains it into a 32 KiB buffer and flushes whenever the channel is momentarily empty. A slow
-reader fills the channel and blocks the workers, so memory stays at 6.8–7.7 MB from 0 to 100,000
-matches. There is no sorting or collection stage, so the first match is written as soon as it is
-found.
+Workers never write to stdout. Each formats its matches into its own 16 KiB buffer; one writer
+swaps a filled buffer for an empty one, copies it into a 32 KiB output buffer, and flushes
+whenever every buffer is empty. A worker whose buffer is full waits for the writer, so a slow
+reader blocks the walk and memory stays at 6.5–7.7 MB from 0 to 100,000 matches. There is no
+sorting or collection stage, so the first match is written as soon as it is found.
+
+The reason is measured: a shared channel cost about 0.8 µs of CPU per match in handoff alone.
+With per-worker buffers a match costs one uncontended lock and a copy, nothing is allocated or
+freed across threads, and 100,000 matches outside a git repository take 10.1 ms instead of
+20.3 ms (137 ms of CPU down to 50 ms). See [performance](performance.md#cost-model).
 
 The writer owns broken-pipe handling (quiet exit 0). Ctrl+C sets a flag that stops workers at
 their next entry and stops the writer before its next record, so only whole records reach stdout.
 A worker blocked in a slow `readdir` or `stat` never sees that flag, so a second Ctrl+C exits at
 once. The Ctrl+C flag is the only process-wide state; each search has its own stop flag.
-
-## Records travel inline
-
-A path is copied into a fixed 254-byte record inside the channel slot. Paths longer than that use
-a heap buffer. The reason is measured, not stylistic: with a heap `PathBuf` per match, the writer
-freed memory the workers had allocated, and glibc's per-arena locking turned that into roughly one
-context switch per match. On 100,000 matches that was 88 ms and ~100,000 context switches; inline
-records brought it to 21 ms and under 2,000, with no change in memory. See
-[performance](performance.md#cost-model).
 
 ## Errors are typed until the edge
 

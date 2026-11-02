@@ -3,14 +3,14 @@
 mod common;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::process::Stdio;
-use std::sync::atomic::AtomicBool;
-use std::sync::mpsc::sync_channel;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use common::{Tree, set, zf, zf_cmd};
 use zerofind::domain::OutputFormat;
-use zerofind::output::writer;
+use zerofind::output::sink::{self, CAP, Closed, Ending, Sink};
 
 /// Records each underlying write call, like a pipe would see them.
 type WriteLog = Arc<Mutex<Vec<Vec<u8>>>>;
@@ -30,52 +30,210 @@ impl Write for Probe {
     }
 }
 
-/// Runs the writer on a pipe-like (non-terminal) output in a background thread.
-fn pipe_writer(
-    probe: &Probe,
+/// Runs the writer on `out` in a background thread, the way `lib` runs it on stdout.
+fn spawn_writer<W: Write + Send + 'static>(
+    slots: usize,
+    out: W,
 ) -> (
-    std::sync::mpsc::SyncSender<String>,
-    std::thread::JoinHandle<()>,
+    Arc<Sink>,
+    std::thread::JoinHandle<io::Result<sink::Written>>,
 ) {
-    let (tx, rx) = sync_channel(1024);
-    let out = probe.clone();
-    let handle = std::thread::spawn(move || {
-        let stop = AtomicBool::new(false);
-        writer::drain(rx, out, OutputFormat::Lines, &stop).unwrap();
-    });
-    (tx, handle)
+    let sink = Arc::new(Sink::new(slots, OutputFormat::Lines));
+    let s = Arc::clone(&sink);
+    let handle = std::thread::spawn(move || sink::drain(&s, out, &AtomicBool::new(false)));
+    (sink, handle)
 }
 
 #[test]
 fn record_is_delivered_promptly_when_the_walk_stalls() {
     let probe = Probe::default();
-    let (tx, handle) = pipe_writer(&probe);
-    // A generous deadline: without flush-on-idle the record never arrives while the sender
+    let (sink, handle) = spawn_writer(1, probe.clone());
+    let out = sink.producer();
+    // A generous deadline: without flush-on-idle the record never arrives while the producer
     // is alive, so a tight wall-clock bound would only add flakiness on a loaded machine.
     for n in 1..=3 {
-        tx.send("a.txt".to_owned()).unwrap();
+        out.push(b"a.txt").unwrap();
         let deadline = Instant::now() + Duration::from_secs(2);
         while probe.writes.lock().unwrap().len() < n {
             assert!(
                 Instant::now() < deadline,
-                "record written while the sender is idle"
+                "record written while the producer is idle"
             );
             std::thread::sleep(Duration::from_millis(1));
         }
     }
-    drop(tx);
-    handle.join().unwrap();
+    sink.finish();
+    handle.join().unwrap().unwrap();
+}
+
+/// Blocks every write until released, like a reader that has stopped reading.
+struct Stalled(Receiver<()>, Vec<u8>);
+
+impl Write for Stalled {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let _ = self.0.recv();
+        self.1.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn a_stalled_reader_bounds_buffered_output() {
+    let (release, gate) = channel();
+    let (sink, writer) = spawn_writer(1, Stalled(gate, Vec::new()));
+    let pushed = Arc::new(AtomicUsize::new(0));
+    let record = [b'x'; 99];
+    let total = 20 * CAP / (record.len() + 1);
+    let producer = {
+        let (sink, pushed) = (Arc::clone(&sink), Arc::clone(&pushed));
+        std::thread::spawn(move || {
+            let out = sink.producer();
+            for _ in 0..total {
+                out.push(&record).unwrap();
+                pushed.fetch_add(1, Ordering::Relaxed);
+            }
+            sink.finish();
+        })
+    };
+    std::thread::sleep(Duration::from_millis(200));
+    // A full slot, the buffer the writer swapped out, and its 32 KiB output buffer.
+    let held = pushed.load(Ordering::Relaxed) * (record.len() + 1);
+    let bound = 2 * (CAP + record.len()) + 32 * 1024;
+    assert!(
+        held <= bound,
+        "{held} bytes buffered for a stalled reader (bound {bound})"
+    );
+    drop(release); // every later write proceeds
+    producer.join().unwrap();
+    let written = writer.join().unwrap().unwrap();
+    assert_eq!(written.ending, Ending::Drained);
+    assert_eq!(pushed.load(Ordering::Relaxed), total);
+}
+
+/// Stalls until released, then fails, like a reader that stops reading and then exits.
+struct ClosesLater(Receiver<()>);
+
+impl Write for ClosesLater {
+    fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+        let _ = self.0.recv();
+        Err(io::ErrorKind::BrokenPipe.into())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        let _ = self.0.recv();
+        Err(io::ErrorKind::BrokenPipe.into())
+    }
+}
+
+#[test]
+fn a_closed_reader_releases_blocked_producers() {
+    let (release, gate) = channel();
+    let (sink, writer) = spawn_writer(1, ClosesLater(gate));
+    let (done, stopped) = channel();
+    {
+        let sink = Arc::clone(&sink);
+        std::thread::spawn(move || {
+            let out = sink.producer();
+            let record = [b'x'; 99];
+            let _ = done.send((0..20 * CAP).find_map(|_| out.push(&record).err()));
+        });
+    }
+    // By now the writer is stuck in a write and the producer is waiting on a full slot.
+    std::thread::sleep(Duration::from_millis(200));
+    drop(release);
+    let stopped = stopped
+        .recv_timeout(Duration::from_secs(5))
+        .expect("a producer waiting on a full slot is woken when the reader closes");
+    assert_eq!(stopped, Some(Closed));
+    let written = writer.join().unwrap().unwrap();
+    assert_eq!(written.ending, Ending::BrokenPipe);
+}
+
+/// Panics on the first write, like a writer thread that dies mid-run.
+struct Panics;
+
+impl Write for Panics {
+    fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+        panic!("writer died");
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        panic!("writer died");
+    }
+}
+
+#[test]
+fn a_panicking_writer_releases_blocked_producers() {
+    let (sink, writer) = spawn_writer(1, Panics);
+    let (done, stopped) = channel();
+    {
+        let sink = Arc::clone(&sink);
+        std::thread::spawn(move || {
+            let out = sink.producer();
+            let record = [b'x'; 99];
+            let _ = done.send((0..20 * CAP).find_map(|_| out.push(&record).err()));
+        });
+    }
+    let stopped = stopped
+        .recv_timeout(Duration::from_secs(5))
+        .expect("a producer waiting on a full slot is woken when the writer panics");
+    assert_eq!(stopped, Some(Closed));
+    assert!(writer.join().is_err());
+}
+
+#[test]
+fn concurrent_producers_deliver_every_record_whole() {
+    let probe = Probe::default();
+    let (sink, writer) = spawn_writer(3, probe.clone());
+    let workers: Vec<_> = (0..8)
+        .map(|w| {
+            let sink = Arc::clone(&sink);
+            std::thread::spawn(move || {
+                let out = sink.producer();
+                for i in 0..5_000 {
+                    out.push(format!("w{w}/record-{i:05}").as_bytes()).unwrap();
+                }
+            })
+        })
+        .collect();
+    for w in workers {
+        w.join().unwrap();
+    }
+    sink.finish();
+    writer.join().unwrap().unwrap();
+    let out = probe.writes.lock().unwrap().concat();
+    let lines: std::collections::BTreeSet<_> = out
+        .split(|&b| b == b'\n')
+        .filter(|l| !l.is_empty())
+        .collect();
+    let expected: std::collections::BTreeSet<Vec<u8>> = (0..8)
+        .flat_map(|w| (0..5_000).map(move |i| format!("w{w}/record-{i:05}").into_bytes()))
+        .collect();
+    assert_eq!(
+        out.iter().filter(|&&b| b == b'\n').count(),
+        40_000,
+        "no record lost or split"
+    );
+    assert_eq!(
+        lines
+            .into_iter()
+            .map(<[u8]>::to_vec)
+            .collect::<std::collections::BTreeSet<_>>(),
+        expected
+    );
 }
 
 fn drain_all(format: OutputFormat, records: &[&[u8]]) -> Vec<u8> {
-    let (tx, rx) = sync_channel(16);
+    let sink = Sink::new(1, format);
+    let out = sink.producer();
     for r in records {
-        tx.send(r.to_vec()).unwrap();
+        out.push(r).unwrap();
     }
-    drop(tx);
-    let mut out = Vec::new();
-    writer::drain(rx, &mut out, format, &AtomicBool::new(false)).unwrap();
-    out
+    sink.finish();
+    let mut buf = Vec::new();
+    sink::drain(&sink, &mut buf, &AtomicBool::new(false)).unwrap();
+    buf
 }
 
 #[test]

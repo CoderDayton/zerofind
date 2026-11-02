@@ -169,8 +169,8 @@ When stdout is a terminal, control characters and invalid UTF-8 are shown as `\x
 (`evil\x1b]0;x\x07.txt`), so a file name cannot drive the terminal. A local result whose name
 starts with `-` keeps its `./` (`./-rf`), so `zf rf | xargs rm` cannot pass `rm` an option.
 
-Results are written as they are found. Records collect in a 32 KiB buffer while more are queued,
-and the buffer is flushed whenever the queue runs dry, so a lone match is visible immediately.
+Results are written as they are found. Records collect in a 32 KiB buffer while more are waiting,
+and the buffer is flushed whenever none are, so a lone match is visible immediately.
 Order is unspecified and varies between runs.
 
 ## Exit status and diagnostics

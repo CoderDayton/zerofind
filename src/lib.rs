@@ -17,7 +17,6 @@ pub mod search;
 use std::io::{self, IsTerminal, Write};
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::mpsc::sync_channel;
 
 use clap::Parser;
 
@@ -27,11 +26,8 @@ use domain::query::{CompiledQuery, Query};
 use domain::scope::{self, SearchRoot};
 use domain::{OutputFormat, SearchPlan};
 use error::{ZfError, status};
-use output::writer::{self, Ending};
+use output::sink::{self, Ending, Finish, Sink};
 use search::traversal::{self, Control};
-
-/// Small bound on in-flight results: memory never scales with match count.
-const CHANNEL_CAPACITY: usize = 1024;
 
 /// Ctrl+C is process-wide, so its flag is too; everything else lives in one run.
 static INTERRUPTED: AtomicBool = AtomicBool::new(false);
@@ -112,10 +108,14 @@ fn execute(plan: &SearchPlan, out: impl Write, interrupted: &AtomicBool) -> Resu
         interrupted,
         errors: &errors,
     };
-    let (tx, rx) = sync_channel(CHANNEL_CAPACITY);
+    let threads = traversal::worker_count();
+    let sink = Sink::new(threads, plan.output);
     let written = std::thread::scope(|s| {
-        s.spawn(|| traversal::run(plan, tx, &ctl));
-        let written = writer::drain(rx, out, plan.output, interrupted);
+        s.spawn(|| {
+            let _finish = Finish(&sink);
+            traversal::run(plan, threads, &sink, &ctl);
+        });
+        let written = sink::drain(&sink, out, interrupted);
         stop.store(true, Ordering::Relaxed);
         written
     })

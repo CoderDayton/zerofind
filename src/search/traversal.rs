@@ -1,21 +1,25 @@
-//! Walk coordination: parallel workers send matches into a bounded channel.
+//! Walk coordination: parallel workers push matches into their own output buffers.
 
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::mpsc::SyncSender;
 
 use ignore::WalkState;
 
 use super::filtering::{admission, relative, walker};
 use super::matcher;
-use super::record::Record;
 use crate::domain::SearchPlan;
 use crate::domain::policy::Admission;
 use crate::domain::query::Named;
 use crate::domain::scope::{RootKind, SearchRoot};
 use crate::output::diag;
+use crate::output::sink::{Producer, Sink};
 
+/// Chosen by a sweep of 2–32 workers; see docs/performance.md#worker-count.
 const MAX_THREADS: usize = 8;
+
+pub fn worker_count() -> usize {
+    std::thread::available_parallelism().map_or(1, |n| n.get().min(MAX_THREADS))
+}
 
 /// Shared run state: `stop` ends this walk early, `interrupted` is the process-wide Ctrl+C
 /// flag, and `errors` counts recoverable failures.
@@ -31,8 +35,7 @@ impl Control<'_> {
     }
 }
 
-pub fn run(plan: &SearchPlan, tx: SyncSender<Record>, ctl: &Control<'_>) {
-    let threads = std::thread::available_parallelism().map_or(1, |n| n.get().min(MAX_THREADS));
+pub fn run(plan: &SearchPlan, threads: usize, sink: &Sink, ctl: &Control<'_>) {
     for root in &plan.roots {
         if ctl.halted() {
             return;
@@ -41,26 +44,23 @@ pub fn run(plan: &SearchPlan, tx: SyncSender<Record>, ctl: &Control<'_>) {
             RootKind::File => {
                 let rel = root.path.file_name().map_or(root.path.as_path(), Path::new);
                 if matcher::is_match(plan, rel, || false)
-                    && tx.send(Record::new(&root.path)).is_err()
+                    && sink
+                        .producer()
+                        .push(root.path.as_os_str().as_encoded_bytes())
+                        .is_err()
                 {
                     return;
                 }
             }
-            RootKind::Dir => walk_dir(plan, root, threads, &tx, ctl),
+            RootKind::Dir => walk_dir(plan, root, threads, sink, ctl),
         }
     }
 }
 
-fn walk_dir(
-    plan: &SearchPlan,
-    root: &SearchRoot,
-    threads: usize,
-    tx: &SyncSender<Record>,
-    ctl: &Control<'_>,
-) {
+fn walk_dir(plan: &SearchPlan, root: &SearchRoot, threads: usize, sink: &Sink, ctl: &Control<'_>) {
     walker(root, plan, threads).run(|| {
-        let tx = tx.clone();
-        Box::new(move |result| visit(result, plan, root, &tx, ctl))
+        let out = sink.producer();
+        Box::new(move |result| visit(result, plan, root, &out, ctl))
     });
 }
 
@@ -68,7 +68,7 @@ fn visit(
     result: Result<ignore::DirEntry, ignore::Error>,
     plan: &SearchPlan,
     root: &SearchRoot,
-    tx: &SyncSender<Record>,
+    out: &Producer<'_>,
     ctl: &Control<'_>,
 ) -> WalkState {
     if ctl.halted() {
@@ -95,7 +95,9 @@ fn visit(
     }
     let is_dir = || matcher::is_dir(entry.path(), entry.file_type());
     if matcher::is_match(plan, relative(entry.path(), &root.path), is_dir)
-        && tx.send(Record::new(root.display(entry.path()))).is_err()
+        && out
+            .push(root.display(entry.path()).as_os_str().as_encoded_bytes())
+            .is_err()
     {
         return WalkState::Quit;
     }

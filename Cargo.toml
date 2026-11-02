@@ -20,8 +20,8 @@ unicode-normalization = "0.1.26"
 [dev-dependencies]
 tempfile = "3.27.0"
 
-# vs cargo's default release profile: binary 3.19 -> 2.02 MiB, walks under 1 ms faster,
-# start-up within noise; incremental release rebuild 0.6 -> 8.6 s. See docs/performance.md.
+# vs cargo's default release profile: binary 3.14 -> 1.99 MiB, run time within noise;
+# incremental release rebuild 0.6 -> 8.4 s. See docs/performance.md.
 [profile.release]
 lto = "fat"
 codegen-units = 1
