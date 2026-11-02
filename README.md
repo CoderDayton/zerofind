@@ -4,6 +4,7 @@
 
 Find files by name, extension, or path without learning flags.
 
+[![CI](https://github.com/CoderDayton/zerofind/actions/workflows/ci.yml/badge.svg)](https://github.com/CoderDayton/zerofind/actions/workflows/ci.yml)
 ![Rust 1.88+](https://img.shields.io/badge/rust-1.88%2B%20%C2%B7%202024%20edition-orange)
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 
