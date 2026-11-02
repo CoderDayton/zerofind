@@ -1,5 +1,3 @@
-<div align="center">
-
 # zerofind
 
 Find files by name, extension, or path without learning flags.
@@ -7,8 +5,6 @@ Find files by name, extension, or path without learning flags.
 [![CI](https://github.com/CoderDayton/zerofind/actions/workflows/ci.yml/badge.svg)](https://github.com/CoderDayton/zerofind/actions/workflows/ci.yml)
 ![Rust 1.88+](https://img.shields.io/badge/rust-1.88%2B%20%C2%B7%202024%20edition-orange)
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue)
-
-</div>
 
 `zf` finds files by name. What you type decides how it matches: `index` is part of a name, `.rs`
 an extension, `*.rs` a glob, `src/main` a path. Put a folder in front (`~/Downloads/report`) to
@@ -66,23 +62,23 @@ rules and exit codes are in the [CLI reference](docs/cli.md).
 
 ## When not to use this
 
-| Situation                          | Use instead             | Why                                              |
-| ---------------------------------- | ----------------------- | ------------------------------------------------ |
-| Searching inside files             | `rg`, `grep`            | `zf` matches names only and never opens files    |
-| Regex, size, time or owner filters | `fd`, `find`            | Four fixed word modes, no filter expressions     |
-| Running a command per result       | `fd -x`, `find -exec`   | No exec; pipe to `xargs -0` with `-0`            |
-| Following symlinked folders        | `fd -L`, `find -L`      | `zf` never descends into them                    |
-| Repeated whole-disk lookups        | `plocate`               | No index; each run walks the tree                |
-| Sorted or ranked output            | `zf ... \| sort`, `fzf` | Matching is yes/no and order is unspecified      |
+| Situation                          | Use instead             | Why                                           |
+| ---------------------------------- | ----------------------- | --------------------------------------------- |
+| Searching inside files             | `rg`, `grep`            | `zf` matches names only and never opens files |
+| Regex, size, time or owner filters | `fd`, `find`            | Four fixed word modes, no filter expressions  |
+| Running a command per result       | `fd -x`, `find -exec`   | No exec; pipe to `xargs -0` with `-0`         |
+| Following symlinked folders        | `fd -L`, `find -L`      | `zf` never descends into them                 |
+| Repeated whole-disk lookups        | `plocate`               | No index; each run walks the tree             |
+| Sorted or ranked output            | `zf ... \| sort`, `fzf` | Matching is yes/no and order is unspecified   |
 
 ## Benchmarks
 
-| Tree                          | Entries | zf      | fd      | zf memory | fd memory |
-| ----------------------------- | ------: | ------: | ------: | --------: | --------: |
-| `~/.cargo/registry/src`       |  46,253 | 11.6 ms | 20.9 ms |    4.9 MB |    150 MB |
-| `~/.rustup/toolchains`        | 258,714 | 14.3 ms | 34.8 ms |   11.4 MB |    170 MB |
-| `~/.rustup/toolchains`, cold  | 258,714 | 32.9 ms | 52.4 ms |   10.0 MB |    165 MB |
-| projects folder               | 844,800 |  4.7 ms | 18.2 ms |    5.7 MB |    150 MB |
+| Tree                         | Entries |      zf |      fd | zf memory | fd memory |
+| ---------------------------- | ------: | ------: | ------: | --------: | --------: |
+| `~/.cargo/registry/src`      |  46,253 | 11.6 ms | 20.9 ms |    4.9 MB |    150 MB |
+| `~/.rustup/toolchains`       | 258,714 | 14.3 ms | 34.8 ms |   11.4 MB |    170 MB |
+| `~/.rustup/toolchains`, cold | 258,714 | 32.9 ms | 52.4 ms |   10.0 MB |    165 MB |
+| projects folder              | 844,800 |  4.7 ms | 18.2 ms |    5.7 MB |    150 MB |
 
 Median of 20 runs (7 cold) on an i9-13900K, Linux, btrfs on NVMe, with `fd` 10.5.0 set to skip
 the same files. More trees, method and cost model: [performance](docs/performance.md).
