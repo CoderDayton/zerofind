@@ -175,7 +175,8 @@ The cap stays at 16: with the previous walker, 32 workers lost to 16 on every wa
   replaced walker paid 7.7 ms and 14 ms). The rule check walks only the directories above the
   entry that have ignore files, and skips those whose rules cannot apply there: a project repo
   inside a dotfiles repo (`~/.gitignore` of `*`) walks 100,000 files in 9.4–11.2 ms instead of
-  13.2–13.5 ms. `zf`'s own work is one comparison per query word. ASCII names
+  13.2–13.5 ms. `-E` patterns, when given, add one match per entry. `zf`'s own work is one
+  comparison per query word. ASCII names
   are compared without allocating; non-ASCII names are lowercased and NFC-normalized into a
   temporary buffer. Directories with a generated-directory name cost one or two extra `stat`s
   for their marker files. Symlinks are stat'ed only when a kind filter, a `dir/` query or a

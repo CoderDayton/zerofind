@@ -62,7 +62,7 @@ Rejected on the way:
 
 ## Costs
 
-- `zf` owns about 480 lines of ignore-rule and scheduling code, comments included, that the
+- `zf` owns about 530 lines of ignore-rule and scheduling code, comments included, that the
   crate provided. The comparison test fails if the two ever disagree.
 - An unreadable `.git` file in a folder above the root now warns instead of counting toward exit
   status 3, like every other ignore-file problem (decision 0001 #11).

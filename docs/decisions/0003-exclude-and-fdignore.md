@@ -27,6 +27,7 @@ get.
 
 ## Costs
 
-- One more flag and one more ignore file name. The name is checked from the directory listing,
-  not probed; warm search time over a home directory was unchanged (18.8 ms against 18.9 ms).
+- One more flag and one more ignore file name. Inside the walk the name is checked from each
+  directory listing; only the folders above the root are probed for it, once per root. Warm
+  search time over a home directory was unchanged (18.8 ms against 18.9 ms).
 - A rule meant only for `zf` has no file of its own; `.fdignore` is shared with fd.

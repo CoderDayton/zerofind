@@ -26,6 +26,7 @@ argv -> cli -> SearchPlan -> traversal: N workers filter + match -> per-worker b
 | `domain::policy` | hidden, generated-directory and result-kind decisions | scheduling |
 | `search::filtering` | hidden and generated-directory admission per entry | query grammar |
 | `search::rules` | ignore files across directories, repository boundaries | query words |
+| `search::exclude` | `-E` patterns: validation, one matcher per root | ignore files |
 | `search::matcher` | per-entry match and kind | output |
 | `search::walk` | worker queues, growth, stealing, termination | the filesystem |
 | `search::traversal` | reading directories, cancellation, error counting | argument parsing |
@@ -39,8 +40,8 @@ trees.
 ## The plan is fixed before the walk
 
 `lib.rs` splits the arguments into locations and query words, then resolves words, roots,
-visibility, result kind and output format into an immutable `SearchPlan` before any directory is
-read. Nothing a walk finds can change the plan: an empty result never switches a word's mode, and
+visibility, exclude patterns, result kind and output format into an immutable `SearchPlan`
+before any directory is read; a bad word, root or pattern stops here with status 2. Nothing a walk finds can change the plan: an empty result never switches a word's mode, and
 scope never widens. This is what makes `zf` predictable: the same command means the same search
 on every tree.
 
@@ -64,7 +65,8 @@ Ambiguous edge cases were settled explicitly in [decision 0001](decisions/0001-v
 ## Pruning before descent
 
 Each listed entry is checked before anything else happens to it, so an excluded directory is
-never opened. Ignore rules come first: the `ignore` crate parses each ignore file and matches its
+never opened. `-E` patterns come first and nothing overrides them. Ignore rules come next: the
+`ignore` crate parses each ignore file and matches its
 patterns, and `search::rules` combines the files across directories with the crate's own
 precedence and repository boundaries (`tests/walk_oracle.rs` compares the two on generated
 trees). Hidden and generated-directory filtering is done by `zf` alone, because no ignore file
@@ -138,7 +140,7 @@ must not crash a worker or change the result.
 
 ## Out of scope
 
-Fuzzy matching, ranking, regex and bracket globs, content search, size and time filters, custom
-exclusions, output templates, sorting, an index or daemon, thread-count and depth flags, and an
+Fuzzy matching, ranking, regex and bracket globs, content search, size and time filters, output
+templates, sorting, an index or daemon, thread-count and depth flags, and an
 interactive picker. Adding one needs evidence that the current grammar cannot express a common
 need.

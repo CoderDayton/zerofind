@@ -15,14 +15,14 @@ Everything `zf` accepts and everything it prints, including the edge cases.
 zf [OPTIONS] [QUERY]...
 
       --home               Search the home directory
-  -p, --path <DIR>         Search a directory (or evaluate one file); repeatable
+  -p, --path <DIRECTORY>   Search a directory (or evaluate one file); repeatable
       --all                Also search hidden entries, dependencies, build output and ignored files
   -E, --exclude <PATTERN>  Skip entries matching a gitignore-style pattern, even with --all; repeatable
       --files              Return files only
       --dirs               Return directories only
   -0, --print0             Use NUL-delimited output
-  -h, --help               Show help
-  -V, --version            Show version
+  -h, --help               Print help
+  -V, --version            Print version
 ```
 
 Rules that apply everywhere:
@@ -195,8 +195,8 @@ Order is unspecified and varies between runs.
 | Status | When |
 |---:|---|
 | 0 | at least one match, or the reader closed the pipe |
-| 1 | no matches (stdout and stderr are empty) |
-| 2 | bad option or query, or the root cannot be read |
+| 1 | no matches; stdout is empty, stderr holds only warnings and trace lines |
+| 2 | bad option, query or exclude pattern, or the root cannot be read |
 | 3 | some entries could not be read; everything readable was still searched and printed |
 | 130 | interrupted by Ctrl+C; only whole paths were written. A second Ctrl+C exits at once, for a walk stuck on slow storage |
 
@@ -213,6 +213,6 @@ zf: trace: .: workers=16 dirs=7648 entries=258618 waits=15 ms=22.9
 ```
 
 The root is printed as resolved: `.` for the current directory, as typed for `-p`, the full path
-for a location or `--home`. `workers` counts the workers started (the walk adds them as the tree widens), `dirs` the
-directories read, `entries` the entries they listed, `waits` how often a worker found no work
-and slept, and `ms` the walk's wall time.
+for a location or `--home`. `workers` counts the workers started (the walk adds them as the tree
+widens), `dirs` the directories read, `entries` the entries they listed, `waits` how often a
+worker found no work and slept, and `ms` the walk's wall time.
