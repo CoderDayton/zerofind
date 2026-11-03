@@ -1,6 +1,7 @@
 //! Ignore files across a walk, applied as the `ignore` crate's walker applies them.
 //!
-//! `.ignore` applies everywhere. `.gitignore`, `.git/info/exclude` and the user's global git
+//! `.fdignore` and `.ignore` apply everywhere; any `.fdignore` rule outranks any `.ignore` rule,
+//! as fd's custom ignore file does. `.gitignore`, `.git/info/exclude` and the user's global git
 //! ignore file apply only inside a repository (`.git`, or `.jj`, which reads them too), and git
 //! rules from above a repository's top do not reach into it. Folders above the search root
 //! contribute too. tests/walk_oracle.rs holds this to the crate's own walker. One deliberate
@@ -21,6 +22,7 @@ pub struct Rules(Option<Arc<Layer>>);
 
 struct Layer {
     parent: Rules,
+    fd: Gitignore,
     ignore: Gitignore,
     git: Gitignore,
     exclude: Gitignore,
@@ -28,6 +30,8 @@ struct Layer {
     repo: bool,
     /// This layer or one below the root of the stack is a repository.
     in_repo: bool,
+    /// This layer or an outer one has `.fdignore` rules.
+    has_fd: bool,
     /// A folder above the search root: it matches paths under the root's canonical path.
     above_root: bool,
 }
@@ -35,6 +39,7 @@ struct Layer {
 /// Which ignore-related names a directory listing holds; `PROBE` checks the filesystem.
 #[derive(Clone, Copy, Default)]
 struct Found {
+    fd: bool,
     ignore: bool,
     gitignore: bool,
     git: bool,
@@ -43,6 +48,7 @@ struct Found {
 
 impl Found {
     const PROBE: Self = Self {
+        fd: true,
         ignore: true,
         gitignore: true,
         git: true,
@@ -53,6 +59,7 @@ impl Found {
         let mut f = Self::default();
         for e in entries {
             match e.file_name().as_encoded_bytes() {
+                b".fdignore" => f.fd = true,
                 b".ignore" => f.ignore = true,
                 b".gitignore" => f.gitignore = true,
                 b".git" => f.git = true,
@@ -89,6 +96,11 @@ impl Rules {
             None
         };
         let repo = git_type.is_some() || (found.jj && dir.join(".jj").exists());
+        let fd = if found.fd {
+            load(dir, dir, ".fdignore", problems)
+        } else {
+            Gitignore::empty()
+        };
         let ignore = if found.ignore {
             load(dir, dir, ".ignore", problems)
         } else {
@@ -110,12 +122,14 @@ impl Rules {
         } else {
             Gitignore::empty()
         };
-        if !repo && ignore.is_empty() && git.is_empty() && exclude.is_empty() {
+        if !repo && fd.is_empty() && ignore.is_empty() && git.is_empty() && exclude.is_empty() {
             return self.clone();
         }
         Self(Some(Arc::new(Layer {
             in_repo: repo || self.in_repo(),
+            has_fd: !fd.is_empty() || self.has_fd(),
             parent: self.clone(),
+            fd,
             ignore,
             git,
             exclude,
@@ -126,6 +140,10 @@ impl Rules {
 
     fn in_repo(&self) -> bool {
         self.0.as_ref().is_some_and(|l| l.in_repo)
+    }
+
+    fn has_fd(&self) -> bool {
+        self.0.as_ref().is_some_and(|l| l.has_fd)
     }
 
     fn layers(&self) -> impl Iterator<Item = &Layer> {
@@ -154,12 +172,13 @@ impl<'a> Matcher<'a> {
         self.canon.as_deref()
     }
 
-    /// The nearest `.ignore` rule decides; then the nearest git rule up to the repository's
-    /// top, then `info/exclude`, then the global file. `is_dir` is the entry's own kind: a
-    /// symlink is never a directory here.
+    /// The nearest `.fdignore` rule decides, then the nearest `.ignore` rule; then the nearest
+    /// git rule up to the repository's top, then `info/exclude`, then the global file. `is_dir`
+    /// is the entry's own kind: a symlink is never a directory here.
     pub fn ignored(&self, rules: &Rules, path: &Path, is_dir: bool) -> bool {
         let in_repo = rules.in_repo();
-        let (mut git, mut exclude) = (None, None);
+        let has_fd = rules.has_fd();
+        let (mut ignore, mut git, mut exclude) = (None, None, None);
         let mut saw_repo = false;
         let mut above = None;
         for layer in rules.layers() {
@@ -167,7 +186,7 @@ impl<'a> Matcher<'a> {
             saw_repo |= layer.repo;
             // Skip layers with nothing to check here before building an above-root path.
             let git_rules = check_git && !(layer.git.is_empty() && layer.exclude.is_empty());
-            if layer.ignore.is_empty() && !git_rules {
+            if layer.fd.is_empty() && layer.ignore.is_empty() && !git_rules {
                 continue;
             }
             let p = if layer.above_root {
@@ -178,9 +197,19 @@ impl<'a> Matcher<'a> {
             } else {
                 path
             };
-            let m = layer.ignore.matched(p, is_dir);
+            let m = layer.fd.matched(p, is_dir);
             if !m.is_none() {
                 return m.is_ignore();
+            }
+            if ignore.is_none() {
+                let m = layer.ignore.matched(p, is_dir);
+                if !m.is_none() {
+                    // Only a `.fdignore` further out could still overrule it.
+                    if !has_fd {
+                        return m.is_ignore();
+                    }
+                    ignore = Some(m.is_ignore());
+                }
             }
             if check_git {
                 if git.is_none() {
@@ -193,7 +222,9 @@ impl<'a> Matcher<'a> {
                 }
             }
         }
-        git.or(exclude)
+        ignore
+            .or(git)
+            .or(exclude)
             .unwrap_or_else(|| in_repo && self.global.matched(path, is_dir).is_ignore())
     }
 

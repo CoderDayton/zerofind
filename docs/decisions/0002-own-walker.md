@@ -24,7 +24,8 @@ directories is private to it.
   its first wide directory.
 - **Work stealing.** Each worker owns a queue, takes its newest job and so walks its own subtree;
   an idle worker steals another queue's oldest job. Idle workers sleep on a condition variable.
-- **Rules.** The crate's semantics are kept exactly: `.ignore` everywhere; `.gitignore`,
+- **Rules.** The crate's semantics are kept exactly: `.ignore` everywhere, and `.fdignore`
+  as the crate's custom ignore file, outranking it (decision 0003); `.gitignore`,
   `.git/info/exclude` (through a worktree's `commondir`) and the global git ignore file only
   inside a `.git` or `.jj` repository, never across its top; ignore files above the root apply.
   `tests/walk_oracle.rs` compares the result set with the crate's walker on 200 generated trees

@@ -81,10 +81,12 @@ fn plan(cli: &Cli) -> Result<SearchPlan, ZfError> {
         .iter()
         .map(|t| CompiledQuery::compile(t))
         .collect::<Result<_, _>>()?;
+    search::exclude::check(&cli.exclude)?;
     Ok(SearchPlan {
         roots: scope::dedupe(roots),
         query: Query::new(terms),
         visibility: VisibilityPolicy { all: cli.all },
+        exclude: cli.exclude.clone(),
         result_kind: match (cli.files, cli.dirs) {
             (true, _) => ResultKind::Files,
             (_, true) => ResultKind::Dirs,
@@ -150,6 +152,7 @@ mod tests {
             roots: vec![scope::resolve_explicit(dir.path()).unwrap()],
             query: Query::new(vec![CompiledQuery::compile("a.txt".as_ref()).unwrap()]),
             visibility: VisibilityPolicy { all: false },
+            exclude: Vec::new(),
             result_kind: ResultKind::Any,
             output: OutputFormat::Lines,
         };

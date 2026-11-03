@@ -23,6 +23,8 @@ pub struct SearchPlan {
     pub roots: Vec<SearchRoot>,
     pub query: Query,
     pub visibility: VisibilityPolicy,
+    /// Gitignore-style patterns, anchored at each root, that no rule or query overrides.
+    pub exclude: Vec<String>,
     pub result_kind: ResultKind,
     pub output: OutputFormat,
 }

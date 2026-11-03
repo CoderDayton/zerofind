@@ -14,14 +14,15 @@ Everything `zf` accepts and everything it prints, including the edge cases.
 ```text
 zf [OPTIONS] [QUERY]...
 
-      --home          Search the home directory
-  -p, --path <DIR>    Search a directory (or evaluate one file); repeatable
-      --all           Also search hidden entries, dependencies, build output and ignored files
-      --files         Return files only
-      --dirs          Return directories only
-  -0, --print0        Use NUL-delimited output
-  -h, --help          Show help
-  -V, --version       Show version
+      --home               Search the home directory
+  -p, --path <DIR>         Search a directory (or evaluate one file); repeatable
+      --all                Also search hidden entries, dependencies, build output and ignored files
+  -E, --exclude <PATTERN>  Skip entries matching a gitignore-style pattern, even with --all; repeatable
+      --files              Return files only
+      --dirs               Return directories only
+  -0, --print0             Use NUL-delimited output
+  -h, --help               Show help
+  -V, --version            Show version
 ```
 
 Rules that apply everywhere:
@@ -33,9 +34,9 @@ Rules that apply everywhere:
 - The query is interpreted identically whether stdout is a terminal, a pipe or a file.
 - `--files` with `--dirs` is a usage error. Roots from locations, `-p` and `--home` combine;
   a root inside another, or repeated, is searched once.
-- A word starting with `-` is a query unless it is a known short flag (`-0`, `-p`, `-h`,
-  `-V`): `zf -draft` works. `-p` takes its directory as the next argument, so `-pending` is a
-  query. Unknown long options (`--depth`) are usage errors.
+- A word starting with `-` is a query unless it is a known short flag (`-0`, `-p`, `-E`,
+  `-h`, `-V`): `zf -draft` works. `-p` and `-E` take their value as the next argument, so
+  `-pending` is a query. Unknown long options (`--depth`) are usage errors.
 
 ## Query modes
 
@@ -133,8 +134,22 @@ you typed.
 | Hidden entries (name starts with `.`) | skipped | included |
 | `.gitignore`, `.git/info/exclude`, global git excludes | applied inside a git or jj repository (a `.git` or `.jj` directory at or above the entry), including ignore files above the root | ignored |
 | `.ignore` | applied everywhere, including files above the root | ignored |
+| `.fdignore` | as `.ignore`; any `.fdignore` rule, at any depth, outranks any `.ignore` rule | ignored |
+| `-E`/`--exclude` patterns | skipped | skipped |
 | Generated directories (below) | skipped | included |
 | Symlinked directories | printed if they match, never entered | same |
+
+`.fdignore` is read so rules written for `fd` carry over. `.rgignore` is not: it hides files
+from content search, and a name search should still find them.
+
+`-E PATTERN` is one gitignore line, repeatable. A pattern without a `/` matches a name at any
+depth (`-E old`, `-E '*.iso'`); one with a `/` is anchored at each search root
+(`-E docs/old`); a trailing `/` matches directories only (`-E cache/`). Excluded directories
+are pruned. An exclude beats every other rule: `--all` does not lift it, and a query that
+spells the name does not reach it. An invalid pattern (`a{b`), a blank one, or one starting
+with `#` (a gitignore comment; write `\#`) is a usage error. As in ignore files, a symlink is
+never a directory, so `-E cache/` does not match a symlinked `cache`. A file named with `-p` is
+evaluated as-is: excludes, like every other filter, do not apply to it.
 
 Generated directories are recognized by convention, not by name alone, so a hand-made
 `~/Documents/build` is searched:

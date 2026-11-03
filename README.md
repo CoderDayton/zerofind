@@ -25,8 +25,9 @@ tests/query_contract.rs
 
 - **No flags to learn**: the query's shape picks the match mode, and it never guesses again when
   nothing matches.
-- **Sensible skipping**: hidden files, `.gitignore` and `.ignore` rules, and build output such as
-  `node_modules` are skipped. Type a skipped name (`.env`) to find it, or pass `--all`.
+- **Sensible skipping**: hidden files, `.gitignore`, `.ignore` and `.fdignore` rules, and build
+  output such as `node_modules` are skipped. Type a skipped name (`.env`) to find it, or pass
+  `--all`. Skip more with `-E`.
 - **Stays in bounds**: never leaves the folder you search, never follows symlinked folders, never
   reads file contents.
 - **Pipe-safe**: only paths on stdout, `-0` for NUL separators, quiet exit on a closed pipe.
@@ -54,6 +55,7 @@ zf '*.rs' | xargs wc -l  # results are plain paths
 | `--home`             | Search the home directory                     |
 | `-p, --path DIR`     | Search `DIR`; repeatable                      |
 | `--all`              | Include hidden, ignored and generated entries |
+| `-E, --exclude PAT`  | Skip a gitignore-style pattern; repeatable    |
 | `--files` / `--dirs` | Print only files or only directories          |
 | `-0, --print0`       | NUL-separated output                          |
 
@@ -105,6 +107,7 @@ Benchmarks need `fd`, `python3` and a C compiler.
 - [Performance](docs/performance.md): method, results, cost model, limits
 - [Decision 0001](docs/decisions/0001-v1-behavior-choices.md): edge-case behavior and the tests that pin it
 - [Decision 0002](docs/decisions/0002-own-walker.md): why `zf` schedules its own walk and applies ignore files itself
+- [Decision 0003](docs/decisions/0003-exclude-and-fdignore.md): `--exclude`, `.fdignore`, and why there is no config file
 
 ## License
 

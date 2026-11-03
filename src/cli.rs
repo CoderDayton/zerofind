@@ -37,6 +37,10 @@ pub struct Cli {
     #[arg(long)]
     pub all: bool,
 
+    /// Skip entries matching a gitignore-style pattern, even with --all; repeatable
+    #[arg(short = 'E', long, value_name = "PATTERN")]
+    pub exclude: Vec<String>,
+
     /// Return files only
     #[arg(long, conflicts_with = "dirs")]
     pub files: bool,
@@ -51,7 +55,10 @@ pub struct Cli {
 }
 
 /// Short flags `zf` knows; any other `-word` is a query (`zf -draft`).
-const SHORT_FLAGS: &[u8] = b"p0hV";
+const SHORT_FLAGS: &[u8] = b"pE0hV";
+
+/// Short flags that take the next argument as their value.
+const VALUE_FLAGS: &[u8] = b"pE";
 
 /// `-0`, `-p`, `-0p`: a cluster of known short flags.
 fn is_flag_cluster(b: &[u8]) -> bool {
@@ -59,8 +66,8 @@ fn is_flag_cluster(b: &[u8]) -> bool {
 }
 
 /// Moves query words that start with `-` behind `--`, so they need no escaping. Long options
-/// are left alone: a mistyped `--depth` is still a usage error. A `-p` value must be a
-/// separate argument (`-p dir`): `-pending` is a query.
+/// are left alone: a mistyped `--depth` is still a usage error. A `-p` or `-E` value must be
+/// a separate argument (`-p dir`): `-pending` is a query.
 pub fn normalize(args: impl IntoIterator<Item = OsString>) -> Vec<OsString> {
     let mut out = Vec::new();
     let mut dashed = Vec::new();
@@ -77,8 +84,12 @@ pub fn normalize(args: impl IntoIterator<Item = OsString>) -> Vec<OsString> {
             && b[1] != b'-'
             && !is_flag_cluster(b);
         let value = takes_value;
-        takes_value =
-            !separator && !value && (b == b"--path" || (is_flag_cluster(b) && b.ends_with(b"p")));
+        takes_value = !separator
+            && !value
+            && (b == b"--path"
+                || b == b"--exclude"
+                || (is_flag_cluster(b)
+                    && b[1..].iter().position(|c| VALUE_FLAGS.contains(c)) == Some(b.len() - 2)));
         separator |= !value && b == b"--";
         if query_word {
             dashed.push(arg);
@@ -114,6 +125,8 @@ mod tests {
             ["zf", "--", "y", "-2024"]
         );
         assert_eq!(norm(&["zf", "-pending"]), ["zf", "--", "-pending"]);
+        // A value flag inside a cluster takes the rest of the cluster: `-pE` is `-p E`.
+        assert_eq!(norm(&["zf", "-pE", "-odd"]), ["zf", "-pE", "--", "-odd"]);
     }
 
     #[test]
@@ -122,6 +135,9 @@ mod tests {
             &["zf", "-0", "x"][..],
             &["zf", "-p", "-odd-dir", "x"][..],
             &["zf", "-0p", "-odd-dir", "x"][..],
+            &["zf", "-E", "-tmp", "x"][..],
+            &["zf", "--exclude", "-tmp", "x"][..],
+            &["zf", "-0E", "-tmp", "x"][..],
             &["zf", "--depth", "3"][..],
             &["zf", "-hV"][..],
             &["zf", "--", "-x"][..],

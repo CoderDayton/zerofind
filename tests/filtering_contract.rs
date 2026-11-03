@@ -239,3 +239,104 @@ fn symlinked_directory_does_not_escape_root() {
         "the link itself is an entry"
     );
 }
+
+#[test]
+fn dot_fdignore_applies_outside_a_git_repository() {
+    let t = Tree::with(&["app/secret.key", "app/main.rs"]);
+    t.file(".fdignore", "*.key\n");
+    assert_eq!(zf(&t.join("app"), &["e"]).lines(), set(&[]));
+}
+
+#[test]
+fn dot_fdignore_outranks_dot_ignore_at_any_depth() {
+    // As in fd: a `.fdignore` rule decides before any `.ignore` rule, even a nearer one.
+    let t = Tree::with(&["sub/keep.log", "sub/x.log"]);
+    t.file(".fdignore", "!keep.log\n");
+    t.file("sub/.ignore", "*.log\n");
+    assert_eq!(zf(t.path(), &[".log"]).lines(), set(&["sub/keep.log"]));
+}
+
+#[test]
+fn dot_rgignore_is_not_read() {
+    // `.rgignore` hides files from content search; a name search should still find them.
+    let t = Tree::with(&["data.csv"]);
+    t.file(".rgignore", "*.csv\n");
+    assert_eq!(zf(t.path(), &["data"]).lines(), set(&["data.csv"]));
+}
+
+#[test]
+fn exclude_removes_and_prunes_matching_entries() {
+    let t = Tree::with(&["cache/a.txt", "old/a.txt", "src/a.txt", "src/old.txt"]);
+    assert_eq!(
+        zf(t.path(), &["a.txt", "-E", "cache/", "--exclude", "old"]).lines(),
+        set(&["src/a.txt"])
+    );
+    assert_eq!(
+        zf(t.path(), &["txt", "--exclude=*.txt"]).code,
+        1,
+        "the = form works too"
+    );
+}
+
+#[test]
+fn exclude_with_a_slash_is_anchored_at_the_search_root() {
+    let t = Tree::with(&["docs/old/a.txt", "x/docs/old/a.txt"]);
+    assert_eq!(
+        zf(t.path(), &["a.txt", "-E", "docs/old"]).lines(),
+        set(&["x/docs/old/a.txt"])
+    );
+    assert_eq!(
+        zf(t.path(), &["a.txt", "-p", "x", "-E", "docs/old"]).code,
+        1,
+        "anchored at each root"
+    );
+}
+
+#[test]
+fn exclude_applies_with_all_and_to_named_entries() {
+    let t = Tree::with(&["node_modules/a.js", ".env", "src/a.js"]);
+    assert_eq!(
+        zf(t.path(), &["node_modules", "-E", "node_modules"]).code,
+        1
+    );
+    assert_eq!(zf(t.path(), &[".env", "-E", ".env"]).code, 1);
+    assert_eq!(
+        zf(t.path(), &["a.js", "--all", "-E", "node_modules"]).lines(),
+        set(&["src/a.js"])
+    );
+}
+
+#[test]
+fn invalid_exclude_pattern_is_a_usage_error() {
+    let t = Tree::with(&["a.txt"]);
+    let out = zf(t.path(), &["a", "-E", "a{b"]);
+    assert_eq!(out.code, 2, "{}", out.stderr);
+    assert!(
+        out.stderr.contains("a{b"),
+        "names the pattern: {}",
+        out.stderr
+    );
+}
+
+#[test]
+fn exclude_patterns_that_match_nothing_are_usage_errors() {
+    // gitignore reads these as a comment or a blank line: they would silently exclude nothing.
+    let t = Tree::with(&["#draft#", "a.txt"]);
+    for pattern in ["#draft#", "", "   "] {
+        let out = zf(t.path(), &["a", "-E", pattern]);
+        assert_eq!(out.code, 2, "{pattern:?}: {}", out.stderr);
+        assert!(out.stdout.is_empty(), "{pattern:?}");
+    }
+    let out = zf(t.path(), &["draft", "-E", "\\#draft#"]);
+    assert_eq!(out.code, 1, "an escaped # is a pattern: {}", out.stderr);
+}
+
+#[test]
+fn a_file_named_with_p_bypasses_excludes() {
+    // A file you name directly is evaluated as-is, like every other filter.
+    let t = Tree::with(&["a.iso"]);
+    assert_eq!(
+        zf(t.path(), &["-p", "a.iso", "-E", "*.iso", "a"]).lines(),
+        set(&["a.iso"])
+    );
+}

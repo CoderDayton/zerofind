@@ -18,6 +18,9 @@ fn oracle(root: &Path) -> BTreeSet<String> {
 
 fn listing(root: &Path, rules: bool) -> BTreeSet<String> {
     let mut b = ignore::WalkBuilder::new(root);
+    if rules {
+        b.add_custom_ignore_filename(".fdignore");
+    }
     b.standard_filters(false)
         .hidden(false)
         .parents(rules)
@@ -129,6 +132,9 @@ fn grow(t: &Tree, rng: &mut Rng, dir: &str, depth: u32) {
     }
     if rng.below(5) == 0 {
         t.file(&format!("{dir}.ignore"), &rules(rng));
+    }
+    if rng.below(6) == 0 {
+        t.file(&format!("{dir}.fdignore"), &rules(rng));
     }
     if depth < 4 {
         for _ in 0..rng.below(4) {

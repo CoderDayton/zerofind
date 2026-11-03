@@ -9,6 +9,7 @@ use std::time::Instant;
 
 use ignore::gitignore::Gitignore;
 
+use super::exclude;
 use super::filtering::{admission, relative};
 use super::matcher;
 use super::rules::{Matcher, Rules};
@@ -102,6 +103,8 @@ fn walk_dir(
         None => Rules::default(),
     };
     warn_all(problems, root);
+    // Validated when the plan was built.
+    let exclude = exclude::build(&root.path, &plan.exclude).ok().flatten();
     let first = Job {
         dir: root.path.clone(),
         rules,
@@ -110,6 +113,7 @@ fn walk_dir(
         plan,
         root,
         matcher: matcher.as_ref(),
+        exclude: exclude.as_ref(),
         ctl,
     };
     walk::run(
@@ -126,6 +130,8 @@ struct Walker<'a> {
     root: &'a SearchRoot,
     /// `None` with `--all`: no ignore rules.
     matcher: Option<&'a Matcher<'a>>,
+    /// `--exclude` patterns: applied before every other rule, with or without `--all`.
+    exclude: Option<&'a Gitignore>,
     ctl: &'a Control<'a>,
 }
 
@@ -184,9 +190,16 @@ impl Walker<'_> {
             }
         };
         let path = entry.path();
+        let is_dir = file_type.is_dir();
+        if self
+            .exclude
+            .is_some_and(|x| x.matched(&path, is_dir).is_ignore())
+        {
+            return Ok(());
+        }
         if self
             .matcher
-            .is_some_and(|m| m.ignored(rules, &path, file_type.is_dir()))
+            .is_some_and(|m| m.ignored(rules, &path, is_dir))
         {
             return Ok(());
         }

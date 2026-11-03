@@ -19,6 +19,7 @@ pub mod status {
 pub enum ZfError {
     Query(QueryError),
     Scope(ScopeError),
+    Exclude { pattern: String, reason: String },
     Output(io::Error),
 }
 
@@ -62,6 +63,9 @@ impl fmt::Display for ZfError {
             Self::Scope(ScopeError::NoHome) => write!(f, "cannot find the home directory"),
             Self::Scope(ScopeError::Inaccessible { path, source }) => {
                 write!(f, "cannot search '{}': {source}", path.display())
+            }
+            Self::Exclude { pattern, reason } => {
+                write!(f, "invalid exclude pattern '{pattern}': {reason}")
             }
             Self::Output(e) => write!(f, "cannot write output: {e}"),
         }

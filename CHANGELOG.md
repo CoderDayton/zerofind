@@ -14,5 +14,7 @@ First release.
   - `build`, `dist`, `out`, `coverage` beside a project manifest
   - `vendor` beside `go.mod` or `composer.json`
   - a directory whose name contains `env` and that holds `pyvenv.cfg`
-- Git ignore rules apply inside git and jj repositories; `.ignore` applies everywhere.
+- Git ignore rules apply inside git and jj repositories; `.ignore` and `.fdignore` apply
+  everywhere, `.fdignore` first.
+- `-E`/`--exclude PATTERN` skips gitignore-style patterns, even with `--all`.
 - The walk adds workers as the tree widens, up to 16; `ZF_TRACE=1` reports each walk on stderr.
