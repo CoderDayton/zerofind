@@ -179,8 +179,12 @@ The cap stays at 16: with the previous walker, 32 workers lost to 16 on every wa
   entry that have ignore files, and skips those whose rules cannot apply there: a project repo
   inside a dotfiles repo (`~/.gitignore` of `*`) walks 100,000 files in 9.4–11.2 ms instead of
   13.2–13.5 ms. `-E` patterns, when given, add one match per entry. `zf`'s own work is one
-  comparison per query word. ASCII names
-  are compared without allocating; non-ASCII names are lowercased and NFC-normalized into a
+  comparison per query word. Each directory's entries share one path buffer, and the root
+  prefix and file name are cut from its bytes rather than parsed component by component; on a
+  home directory (22,416 directories, 190,968 entries, one core) this cut CPU from 126 ms to
+  104 ms. The rest is mostly the kernel reading directories: opening each one relative to its
+  parent instead of by full path saved 0.07 µs per directory, so `zf` keeps `std::fs`. ASCII
+  names are compared without allocating; non-ASCII names are lowercased and NFC-normalized into a
   temporary buffer. Directories with a generated-directory name cost one or two extra `stat`s
   for their marker files. Symlinks are stat'ed only when a kind filter, a `dir/` query or a
   generated-directory name needs their target's kind.

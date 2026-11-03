@@ -112,10 +112,10 @@ impl CompiledQuery {
         if let Kind::Path(p) = &self.kind {
             return p.matches(rel, is_dir);
         }
-        let Some(name) = rel.file_name() else {
+        let Some(name) = base_name(rel) else {
             return false;
         };
-        let name = fold(name.as_encoded_bytes());
+        let name = fold(name);
         match &self.kind {
             Kind::Name { needle, boundary } => needle.within(&name, *boundary),
             Kind::Extension(ext) => {
@@ -136,10 +136,10 @@ impl CompiledQuery {
         match &self.kind {
             Kind::Path(p) => p.names(rel),
             _ => {
-                let Some(name) = rel.file_name() else {
+                let Some(name) = base_name(rel) else {
                     return Named::No;
                 };
-                let name = fold(name.as_encoded_bytes());
+                let name = fold(name);
                 let spelled = match &self.kind {
                     Kind::Name { needle, .. } | Kind::Extension(needle) => *name == *needle.folded,
                     Kind::Glob(p) => p.names(&name),
@@ -149,6 +149,18 @@ impl CompiledQuery {
             }
         }
     }
+}
+
+/// The last component of a walked path, read from its bytes: walked paths never end in a
+/// separator, `.` or `..`, so this equals `file_name()` without parsing components.
+fn base_name(rel: &Path) -> Option<&[u8]> {
+    let b = rel.as_os_str().as_encoded_bytes();
+    let start = b
+        .iter()
+        .rposition(|&c| is_separator(c))
+        .map_or(0, |i| i + 1);
+    let name = &b[start..];
+    (!name.is_empty()).then_some(name)
 }
 
 fn is_separator(b: u8) -> bool {

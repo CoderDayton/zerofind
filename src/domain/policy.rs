@@ -79,17 +79,17 @@ impl VisibilityPolicy {
     }
 }
 
+/// Runs for every visible entry, so it compares bytes and skips UTF-8 validation; every listed
+/// name is ASCII.
 fn is_candidate(name: &OsStr) -> bool {
-    let Some(n) = name.to_str() else {
-        return false;
-    };
-    ALWAYS_SKIPPED.contains(&n) || SKIPPED_BESIDE.iter().any(|(d, _)| *d == n) || mentions_env(n)
+    let n = name.as_encoded_bytes();
+    ALWAYS_SKIPPED.iter().any(|d| d.as_bytes() == n)
+        || SKIPPED_BESIDE.iter().any(|(d, _)| d.as_bytes() == n)
+        || mentions_env(n)
 }
 
-fn mentions_env(name: &str) -> bool {
-    name.as_bytes()
-        .windows(3)
-        .any(|w| w.eq_ignore_ascii_case(b"env"))
+fn mentions_env(name: &[u8]) -> bool {
+    name.windows(3).any(|w| w.eq_ignore_ascii_case(b"env"))
 }
 
 /// `path` is a directory named `name`. A Python virtual environment is recognized by its
@@ -108,7 +108,7 @@ fn is_generated(path: &Path, name: &OsStr) -> bool {
             return true;
         }
     }
-    mentions_env(n) && exists(&path.join("pyvenv.cfg"))
+    mentions_env(n.as_bytes()) && exists(&path.join("pyvenv.cfg"))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

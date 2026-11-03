@@ -1,6 +1,7 @@
 //! Walk coordination: workers read directories, apply ignore rules and visibility, match, and
 //! push results into their own output buffers.
 
+use std::ffi::OsStr;
 use std::fs::{self, DirEntry};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -163,11 +164,17 @@ impl Walker<'_> {
             }
             None => job.rules,
         };
+        // One path buffer for the whole listing: each entry swaps in its name, so only the
+        // directories queued below get a path of their own.
+        let mut path = job.dir.join("_");
+        let base = path.as_os_str().len() - 1;
         for entry in &list {
             if self.ctl.halted() {
                 break;
             }
-            if self.visit(out, entry, &rules, found).is_err() {
+            let name = entry.file_name();
+            set_name(&mut path, base, &name);
+            if self.visit(out, entry, &path, &name, &rules, found).is_err() {
                 self.ctl.stop.store(true, Ordering::Relaxed);
                 break;
             }
@@ -179,53 +186,44 @@ impl Walker<'_> {
         &self,
         out: &Producer<'_>,
         entry: &DirEntry,
+        path: &Path,
+        name: &OsStr,
         rules: &Rules,
         found: &mut Vec<Job>,
     ) -> Result<(), ()> {
         let file_type = match entry.file_type() {
             Ok(t) => t,
             Err(err) => {
-                self.fail(&entry.path(), "cannot read file type", &err);
+                self.fail(path, "cannot read file type", &err);
                 return Ok(());
             }
         };
-        let path = entry.path();
         let is_dir = file_type.is_dir();
         if self
             .exclude
-            .is_some_and(|x| x.matched(&path, is_dir).is_ignore())
+            .is_some_and(|x| x.matched(path, is_dir).is_ignore())
         {
             return Ok(());
         }
-        if self
-            .matcher
-            .is_some_and(|m| m.ignored(rules, &path, is_dir))
-        {
+        if self.matcher.is_some_and(|m| m.ignored(rules, path, is_dir)) {
             return Ok(());
         }
         let (plan, root) = (self.plan, &self.root.path);
-        let rel = relative(&path, root);
-        let admitted = admission(
-            &path,
-            &entry.file_name(),
-            file_type,
-            rel,
-            &plan.query,
-            plan.visibility,
-        );
+        let rel = relative(path, root);
+        let admitted = admission(path, name, file_type, rel, &plan.query, plan.visibility);
         if admitted == Admission::Denied {
             return Ok(());
         }
-        let is_dir = || matcher::is_dir(&path, Some(file_type));
+        let is_dir = || matcher::is_dir(path, Some(file_type));
         if matcher::is_match(plan, rel, is_dir) {
-            out.push(self.root.display(&path).as_os_str().as_encoded_bytes())
+            out.push(self.root.display(path).as_os_str().as_encoded_bytes())
                 .map_err(|_| ())?;
         }
         // A hidden or generated directory the query only spells is a result, not a place to
         // look. Symlinks are never entered.
         if file_type.is_dir() && admitted != Admission::Named(Named::Leaf) {
             found.push(Job {
-                dir: path,
+                dir: path.to_path_buf(),
                 rules: rules.clone(),
             });
         }
@@ -240,6 +238,22 @@ impl Walker<'_> {
             self.root.display(path).display()
         ));
     }
+}
+
+/// Replaces everything after the first `base` bytes of `path` with `name`, reusing its buffer.
+#[cfg(unix)]
+fn set_name(path: &mut PathBuf, base: usize, name: &OsStr) {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+    let mut bytes = std::mem::take(path).into_os_string().into_vec();
+    bytes.truncate(base);
+    bytes.extend_from_slice(name.as_bytes());
+    *path = OsString::from_vec(bytes).into();
+}
+
+#[cfg(not(unix))]
+fn set_name(path: &mut PathBuf, _base: usize, name: &OsStr) {
+    path.set_file_name(name);
 }
 
 /// Ignore-file problems warn without changing the exit status, one line each.
