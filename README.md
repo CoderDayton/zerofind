@@ -105,9 +105,6 @@ Benchmarks need `fd`, `python3` and a C compiler.
 - [CLI reference](docs/cli.md): query grammar, options, filtering, output, exit codes
 - [Design](docs/design.md): pipeline, module boundaries, and why each choice was made
 - [Performance](docs/performance.md): method, results, cost model, limits
-- [Decision 0001](docs/decisions/0001-v1-behavior-choices.md): edge-case behavior and the tests that pin it
-- [Decision 0002](docs/decisions/0002-own-walker.md): why `zf` schedules its own walk and applies ignore files itself
-- [Decision 0003](docs/decisions/0003-exclude-and-fdignore.md): `--exclude`, `.fdignore`, and why there is no config file
 
 ## License
 

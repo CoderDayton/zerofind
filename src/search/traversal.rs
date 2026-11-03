@@ -242,8 +242,7 @@ impl Walker<'_> {
     }
 }
 
-/// Ignore-file problems warn without changing the exit status (decision 0001 #11), one line
-/// each.
+/// Ignore-file problems warn without changing the exit status, one line each.
 fn warn_all(problems: Vec<ignore::Error>, root: &SearchRoot) {
     for err in problems {
         match err {

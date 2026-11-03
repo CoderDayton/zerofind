@@ -60,7 +60,7 @@ instead of asking for a flag:
 - Path components match whole, except the last, so `proj/index` does not match
   `project/index.ts`. Predictable structure was preferred over fuzzy convenience.
 
-Ambiguous edge cases were settled explicitly in [decision 0001](decisions/0001-v1-behavior-choices.md).
+Ambiguous edge cases are spelled out in the [CLI reference](cli.md), each pinned by a test.
 
 ## Pruning before descent
 
@@ -92,8 +92,7 @@ variable and are woken for new work or the end of the walk. The walk is over whe
 holds a job and no worker holds one. A panic in any worker ends the walk for all of them.
 
 The `ignore` crate's walker could not do this: it starts a fixed number of threads, polls when
-idle and queues every file. [Decision 0002](decisions/0002-own-walker.md) records the
-measurements and the rejected designs. `ZF_TRACE=1` prints what a walk did.
+idle and queues every file. [Performance](performance.md#workers) has the measurements. `ZF_TRACE=1` prints what a walk did.
 
 ## One writer, per-worker buffers
 

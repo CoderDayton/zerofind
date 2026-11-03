@@ -27,3 +27,4 @@ rustc-ice-*.txt
 # Project Files
 CLAUDE.md
 docs/plans/
+docs/decisions/
