@@ -52,10 +52,18 @@ pub struct Cli {
     /// Use NUL-delimited output
     #[arg(short = '0', long)]
     pub print0: bool,
+
+    /// Print shallowest results first, then by name; waits for the search to finish
+    #[arg(short = 'n', long, conflicts_with = "modified")]
+    pub nearest: bool,
+
+    /// Print newest results first; waits for the search to finish
+    #[arg(short = 'm', long)]
+    pub modified: bool,
 }
 
 /// Short flags `zf` knows; any other `-word` is a query (`zf -draft`).
-const SHORT_FLAGS: &[u8] = b"pE0hV";
+const SHORT_FLAGS: &[u8] = b"pE0nmhV";
 
 /// Short flags that take the next argument as their value.
 const VALUE_FLAGS: &[u8] = b"pE";
@@ -138,6 +146,8 @@ mod tests {
             &["zf", "-E", "-tmp", "x"][..],
             &["zf", "--exclude", "-tmp", "x"][..],
             &["zf", "-0E", "-tmp", "x"][..],
+            &["zf", "-n", "x"][..],
+            &["zf", "-0m", "x"][..],
             &["zf", "--depth", "3"][..],
             &["zf", "-hV"][..],
             &["zf", "--", "-x"][..],

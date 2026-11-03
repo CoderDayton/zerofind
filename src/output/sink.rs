@@ -176,7 +176,8 @@ impl Producer<'_> {
     }
 }
 
-fn encode(buf: &mut Vec<u8>, path: &[u8], format: OutputFormat) {
+/// Appends one record in `format`, terminator included.
+pub fn encode(buf: &mut Vec<u8>, path: &[u8], format: OutputFormat) {
     match format {
         OutputFormat::Terminal => escape_into(buf, path),
         OutputFormat::Lines | OutputFormat::Nul => buf.extend_from_slice(path),

@@ -27,4 +27,16 @@ pub struct SearchPlan {
     pub exclude: Vec<String>,
     pub result_kind: ResultKind,
     pub output: OutputFormat,
+    pub order: Order,
+}
+
+/// Result order. Anything but `Found` collects each root's results and sorts them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Order {
+    /// As found: streamed, unspecified.
+    Found,
+    /// Shallowest first, then byte order.
+    Nearest,
+    /// Newest modification time first, then as `Nearest`.
+    Modified,
 }

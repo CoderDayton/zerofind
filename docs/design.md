@@ -102,6 +102,10 @@ whenever every buffer is empty. A worker whose buffer is full waits for the writ
 reader blocks the walk and memory stays at 3.9–4.6 MB from 0 to 100,000 matches. There is no
 sorting or collection stage, so the first match is written as soon as it is found.
 
+`-n` and `-m` are the one exception, and only when asked for: `lib.rs` runs the same walk once
+per root into memory, NUL-separated, and `output::order` sorts the records before they are
+encoded for the real output. The walk and the sink do not know about sorting.
+
 The reason is measured: a shared channel cost about 0.8 µs of CPU per match in handoff alone.
 With per-worker buffers a match costs one uncontended lock and a copy, nothing is allocated or
 freed across threads, and 100,000 matches outside a git repository take 10.1 ms instead of
@@ -129,10 +133,10 @@ must not crash a worker or change the result.
 2. Query interpretation depends on the arguments only; a location's existence decides only where
    its root ends.
 3. Scope never widens at runtime.
-4. Match results are deterministic; output order is not.
+4. Match results are deterministic; output order is not, unless `-n` or `-m` sorts it.
 5. Excluded directories are pruned before they are read.
 6. Files and directories can both be results.
-7. Results stream; they are never collected or ranked.
+7. Results stream; they are collected only for `-n` and `-m`, and never ranked.
 8. Stdout carries paths only.
 9. No configuration or persistent state.
 10. A performance change may not alter the match set; every benchmark row checks this first.
@@ -140,6 +144,6 @@ must not crash a worker or change the result.
 ## Out of scope
 
 Fuzzy matching, ranking, regex and bracket globs, content search, size and time filters, output
-templates, sorting, an index or daemon, thread-count and depth flags, and an
+templates, sorting by name or size, an index or daemon, thread-count and depth flags, and an
 interactive picker. Adding one needs evidence that the current grammar cannot express a common
 need.

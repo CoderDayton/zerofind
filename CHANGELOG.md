@@ -21,6 +21,7 @@ First release.
 - `.ignore` and `.fdignore` everywhere; `.fdignore` rules take precedence.
 - `-E`/`--exclude PATTERN` to skip gitignore-style patterns, even with `--all`.
 - Plain paths on stdout, written as they are found; `-0` for NUL-separated output.
+- `-n`/`--nearest` sorts results shallowest first, `-m`/`--modified` newest first.
 - Control characters in names escaped as `\xNN` on a terminal; names starting with `-` keep
   their `./` prefix.
 - Exit status: 0 found, 1 nothing found, 2 usage error, 3 some entries unreadable,

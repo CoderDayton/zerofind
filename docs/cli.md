@@ -21,6 +21,8 @@ zf [OPTIONS] [QUERY]...
       --files              Return files only
       --dirs               Return directories only
   -0, --print0             Use NUL-delimited output
+  -n, --nearest            Print shallowest results first, then by name; waits for the search to finish
+  -m, --modified           Print newest results first; waits for the search to finish
   -h, --help               Print help
   -V, --version            Print version
 ```
@@ -32,10 +34,10 @@ Rules that apply everywhere:
 - No configuration files or saved state change behavior; `HOME` is read only for `~` and
   `--home`.
 - The query is interpreted identically whether stdout is a terminal, a pipe or a file.
-- `--files` with `--dirs` is a usage error. Roots from locations, `-p` and `--home` combine;
+- `--files` with `--dirs`, and `-n` with `-m`, are usage errors. Roots from locations, `-p` and `--home` combine;
   a root inside another, or repeated, is searched once.
 - A word starting with `-` is a query unless it is a known short flag (`-0`, `-p`, `-E`,
-  `-h`, `-V`): `zf -draft` works. `-p` and `-E` take their value as the next argument, so
+  `-n`, `-m`, `-h`, `-V`): `zf -draft` works. `-p` and `-E` take their value as the next argument, so
   `-pending` is a query. Unknown long options (`--depth`) are usage errors.
 
 ## Query modes
@@ -189,6 +191,21 @@ starts with `-` keeps its `./` (`./-rf`), so `zf rf | xargs rm` cannot pass `rm`
 Results are written as they are found. Records collect in a 32 KiB buffer while more are waiting,
 and the buffer is flushed whenever none are, so a lone match is visible immediately.
 Order is unspecified and varies between runs.
+
+### Sorted output
+
+`-n` and `-m` hold each root's results until its walk ends, sort them, then print them; roots
+are printed one after another in the order given. Matching, filtering and exit status are the
+same as without them.
+
+| Flag | Order | Ties |
+|---|---|---|
+| `-n`, `--nearest` | fewest path separators first (`./` before a `-` name does not count) | byte order of the path, as `LC_ALL=C sort` |
+| `-m`, `--modified` | newest modification time first; a symlink's own time, not its target's | as `-n` |
+
+The first result arrives when the walk ends instead of as soon as it is found, and memory grows
+with the number of results. `-m` reads each result's time once, spread over the workers; an
+entry that vanished before it was read sorts last. Ctrl+C prints nothing further and exits 130.
 
 ## Exit status and diagnostics
 

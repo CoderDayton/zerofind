@@ -14,7 +14,7 @@ pub mod output;
 #[doc(hidden)]
 pub mod search;
 
-use std::io::{self, IsTerminal, Write};
+use std::io::{self, BufWriter, IsTerminal, Write};
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -24,7 +24,7 @@ use cli::Cli;
 use domain::policy::{ResultKind, VisibilityPolicy};
 use domain::query::{CompiledQuery, Query};
 use domain::scope::{self, SearchRoot};
-use domain::{OutputFormat, SearchPlan};
+use domain::{Order, OutputFormat, SearchPlan};
 use error::{ZfError, status};
 use output::sink::{self, Ending, Finish, Sink};
 use search::traversal::{self, Control};
@@ -99,10 +99,78 @@ fn plan(cli: &Cli) -> Result<SearchPlan, ZfError> {
         } else {
             OutputFormat::Lines
         },
+        order: match (cli.nearest, cli.modified) {
+            (true, _) => Order::Nearest,
+            (_, true) => Order::Modified,
+            _ => Order::Found,
+        },
     })
 }
 
 fn execute(plan: &SearchPlan, out: impl Write, interrupted: &AtomicBool) -> Result<u8, ZfError> {
+    match plan.order {
+        Order::Found => stream(plan, out, interrupted),
+        order => sorted(plan, order, out, interrupted),
+    }
+}
+
+/// Collects each root's results, sorts them and prints them, root by root in the order given.
+/// Ctrl+C prints nothing more; only whole records are written.
+fn sorted(
+    plan: &SearchPlan,
+    order: Order,
+    out: impl Write,
+    interrupted: &AtomicBool,
+) -> Result<u8, ZfError> {
+    let mut out = BufWriter::with_capacity(32 * 1024, out);
+    let mut code = status::NO_MATCH;
+    let mut line = Vec::new();
+    for root in &plan.roots {
+        let one = SearchPlan {
+            roots: vec![root.clone()],
+            // NUL cannot occur in a path, so records split back apart exactly.
+            output: OutputFormat::Nul,
+            order: Order::Found,
+            ..plan.clone()
+        };
+        let mut found = Vec::new();
+        let root_code = stream(&one, &mut found, interrupted)?;
+        if root_code == status::INTERRUPTED {
+            return Ok(root_code);
+        }
+        let mut records: Vec<&[u8]> = found.split(|&b| b == 0).filter(|r| !r.is_empty()).collect();
+        output::order::sort(&mut records, order, traversal::worker_count());
+        for record in records {
+            if interrupted.load(Ordering::Relaxed) {
+                return written(out.flush()).map(|()| status::INTERRUPTED);
+            }
+            line.clear();
+            sink::encode(&mut line, record, plan.output);
+            if let Err(e) = out.write_all(&line) {
+                return written(Err(e)).map(|()| status::MATCHED);
+            }
+        }
+        if let Err(e) = out.flush() {
+            return written(Err(e)).map(|()| status::MATCHED);
+        }
+        code = match (code, root_code) {
+            (status::PARTIAL, _) | (_, status::PARTIAL) => status::PARTIAL,
+            (status::MATCHED, _) | (_, status::MATCHED) => status::MATCHED,
+            _ => status::NO_MATCH,
+        };
+    }
+    Ok(code)
+}
+
+/// A closed pipe is a quiet success, as in streaming mode; any other write error is fatal.
+fn written(result: io::Result<()>) -> Result<(), ZfError> {
+    match result {
+        Err(e) if e.kind() != io::ErrorKind::BrokenPipe => Err(ZfError::Output(e)),
+        _ => Ok(()),
+    }
+}
+
+fn stream(plan: &SearchPlan, out: impl Write, interrupted: &AtomicBool) -> Result<u8, ZfError> {
     let stop = AtomicBool::new(false);
     let errors = AtomicUsize::new(0);
     let ctl = Control {
@@ -155,6 +223,7 @@ mod tests {
             exclude: Vec::new(),
             result_kind: ResultKind::Any,
             output: OutputFormat::Lines,
+            order: Order::Found,
         };
         let interrupted = AtomicBool::new(false);
         for run in 1..=2 {

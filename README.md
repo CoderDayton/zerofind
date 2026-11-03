@@ -58,8 +58,10 @@ zf '*.rs' | xargs wc -l  # results are plain paths
 | `-E, --exclude PAT`  | Skip a gitignore-style pattern; repeatable    |
 | `--files` / `--dirs` | Print only files or only directories          |
 | `-0, --print0`       | NUL-separated output                          |
+| `-n, --nearest`      | Shallowest results first, then by name        |
+| `-m, --modified`     | Newest results first                          |
 
-Results come in no particular order; pipe through `sort` if it matters. Query modes, skipping
+Results stream in no particular order; `-n` or `-m` sorts them once the search finishes. Query modes, skipping
 rules and exit codes are in the [CLI reference](docs/cli.md).
 
 ## When not to use this
@@ -71,7 +73,7 @@ rules and exit codes are in the [CLI reference](docs/cli.md).
 | Running a command per result       | `fd -x`, `find -exec`   | No exec; pipe to `xargs -0` with `-0`         |
 | Following symlinked folders        | `fd -L`, `find -L`      | `zf` never descends into them                 |
 | Repeated whole-disk lookups        | `plocate`               | No index; each run walks the tree             |
-| Sorted or ranked output            | `zf ... \| sort`, `fzf` | Matching is yes/no and order is unspecified   |
+| Ranking by relevance               | `fzf`                   | Matching is yes/no; `-n` and `-m` only sort   |
 
 ## Benchmarks
 
