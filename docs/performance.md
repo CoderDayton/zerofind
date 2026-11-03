@@ -14,7 +14,7 @@ limits them.
 - [Limits](#limits)
 
 **On every measured tree `zf` finished first and printed its first result first: 2–4 ms to the
-first result against 5.8–30 ms for `fd` 10.5.0, at 4–11 MB peak memory against 148–170 MB. With a
+first result against 5.8–40 ms for `fd` 10.5.0, at 4–11 MB peak memory against 148–170 MB. With a
 cold page cache `zf` finishes 14–37% sooner and its first result arrives 2–7x sooner. Writing
 100,000 matches to `/dev/null`, `zf` takes 12.5 ms and `fd -j 8` 20.6 ms. All numbers come from
 one Linux machine on NVMe; network mounts and other platforms are unmeasured.**
@@ -57,8 +57,11 @@ python3 -I benches/compare.py --cold --runs 5 ~/some/tree   # drops the cache vi
 | projects folder, mostly ignored | 844,800 | `main` (72) | 4.7 ms | 18.2 ms | 2.2 ms | 18.7 ms | 5.7 MB | 150 MB |
 | generated flat | 100,100 | `m` (100,000) | 16.0 ms | 29.8 ms | 2.3 ms | 5.8 ms | 4.4 MB | 150 MB |
 | generated deep, 120 levels | 5,040 | `main` (3,600) | 12.8 ms | 33.1 ms | 2.0 ms | 10.9 ms | 4.3 MB | 153 MB |
+| home folder | 2,856,687 | `.rs` (496) | 20.6 ms | 40.4 ms | 2.7 ms | 39.9 ms | 7.3 MB | 151 MB |
 
-Entry counts include hidden and ignored entries; both tools prune most of the projects folder.
+Entry counts include hidden and ignored entries; both tools prune most of the projects folder
+and the home folder. The home row is a median of 10 from a later session (2026-11-03); there
+`main` took 26.2 ms against 38.0 ms and `src --dirs` 22.6 ms against 36.6 ms.
 A second pass gave 14.9 ms against 22.8 ms for the registry `main` row.
 
 On small result sets `fd`'s first result arrives at about its total time; on large ones (21,589

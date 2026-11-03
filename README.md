@@ -11,7 +11,7 @@ an extension, `*.rs` a glob, `src/main` a path. Put a folder in front (`~/Downlo
 search there; otherwise it searches the current directory. It prints plain paths.
 
 It is quick and small: the first result shows up in 2–4 ms and it uses 4–11 MB of memory, where
-`fd` takes 6–30 ms and 150–170 MB (i9-13900K, warm cache). It has no regex, filters or exec;
+`fd` takes 6–40 ms and 150–170 MB (i9-13900K, warm cache). It has no regex, filters or exec;
 see [When not to use this](#when-not-to-use-this).
 
 ```console
@@ -75,14 +75,16 @@ rules and exit codes are in the [CLI reference](docs/cli.md).
 
 ## Benchmarks
 
-| Tree                         | Entries |      zf |      fd | zf memory | fd memory |
-| ---------------------------- | ------: | ------: | ------: | --------: | --------: |
-| `~/.cargo/registry/src`      |  46,253 | 11.6 ms | 20.9 ms |    4.9 MB |    150 MB |
-| `~/.rustup/toolchains`       | 258,714 | 14.3 ms | 34.8 ms |   11.4 MB |    170 MB |
-| `~/.rustup/toolchains`, cold | 258,714 | 32.9 ms | 52.4 ms |   10.0 MB |    165 MB |
-| projects folder              | 844,800 |  4.7 ms | 18.2 ms |    5.7 MB |    150 MB |
+| Tree                         |   Entries |      zf |      fd | zf memory | fd memory |
+| ---------------------------- | --------: | ------: | ------: | --------: | --------: |
+| `~/.cargo/registry/src`      |    46,253 | 11.6 ms | 20.9 ms |    4.9 MB |    150 MB |
+| `~/.rustup/toolchains`       |   258,714 | 14.3 ms | 34.8 ms |   11.4 MB |    170 MB |
+| `~/.rustup/toolchains`, cold |   258,714 | 32.9 ms | 52.4 ms |   10.0 MB |    165 MB |
+| projects folder              |   844,800 |  4.7 ms | 18.2 ms |    5.7 MB |    150 MB |
+| home folder                  | 2,856,687 | 20.6 ms | 40.4 ms |    7.3 MB |    151 MB |
 
-Median of 20 runs (7 cold) on an i9-13900K, Linux, btrfs on NVMe, with `fd` 10.5.0 set to skip
+Each row is an extension query (`.rs`) or a name query. Median of 20 runs (7 cold, 10 for the
+home folder) on an i9-13900K, Linux, btrfs on NVMe, with `fd` 10.5.0 set to skip
 the same files. More trees, method and cost model: [performance](docs/performance.md).
 
 ```bash
