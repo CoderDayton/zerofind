@@ -37,3 +37,8 @@ First release.
   | `build`, `dist`, `out`, `coverage` | beside a project manifest |
   | `vendor` | beside `go.mod` or `composer.json` |
   | a name containing `env` | it holds `pyvenv.cfg` |
+
+### Fixed
+
+- `-n`/`--nearest` on Windows: names starting with `-` (printed with a `.\` prefix) were sorted
+  one level too deep.
