@@ -45,9 +45,13 @@ fn stamp(part: &mut [Stamped]) {
     }
 }
 
-/// Depth, then bytes. The `./` kept for names starting with `-` counts for neither.
+/// Depth, then bytes. The `./` (`.\` on Windows) kept for names starting with `-` counts for
+/// neither.
 fn nearest(record: &[u8]) -> (usize, &[u8]) {
-    let r = record.strip_prefix(b"./").unwrap_or(record);
+    let r = record
+        .strip_prefix(b"./")
+        .or_else(|| cfg!(windows).then(|| record.strip_prefix(b".\\")).flatten())
+        .unwrap_or(record);
     let separators = r
         .iter()
         .filter(|&&b| b == b'/' || (cfg!(windows) && b == b'\\'))
@@ -77,5 +81,13 @@ mod tests {
         let mut r: Vec<&[u8]> = vec![b"b/x", b"a/b/x", b"./-x", b"x", b"a/x"];
         sort(&mut r, Order::Nearest, 1);
         assert_eq!(r, [&b"./-x"[..], b"x", b"a/x", b"b/x", b"a/b/x"]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn nearest_ignores_the_windows_dot_prefix() {
+        let mut r: Vec<&[u8]> = vec![b"zx", b"a\\x", b".\\-x"];
+        sort(&mut r, Order::Nearest, 1);
+        assert_eq!(r, [&b".\\-x"[..], b"zx", b"a\\x"]);
     }
 }
