@@ -5,6 +5,8 @@ use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 
+use super::query::is_separator;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RootKind {
     Dir,
@@ -86,7 +88,7 @@ pub fn is_location(arg: &OsStr) -> bool {
     is_here(b)
         || b == b"~"
         || b.strip_prefix(b"~")
-            .is_some_and(|rest| rest.first().copied().is_some_and(is_sep))
+            .is_some_and(|rest| rest.first().copied().is_some_and(is_separator))
         || Path::new(arg).components().any(|c| {
             matches!(
                 c,
@@ -96,11 +98,11 @@ pub fn is_location(arg: &OsStr) -> bool {
 }
 
 fn is_here(b: &[u8]) -> bool {
-    matches!(b, [b'.'] | [b'.', b'/']) || (cfg!(windows) && b == b".\\")
-}
-
-fn is_sep(b: u8) -> bool {
-    b == b'/' || (cfg!(windows) && b == b'\\')
+    match b {
+        [b'.'] => true,
+        [b'.', s] => is_separator(*s),
+        _ => false,
+    }
 }
 
 /// A location split into where to search and, when its last component does not exist, the
@@ -129,7 +131,7 @@ pub fn resolve_location(arg: &OsStr, home: Option<&Path>) -> Result<Location, Sc
         }
         Err(e) => e,
     };
-    let trailing_sep = b.last().copied().is_some_and(is_sep);
+    let trailing_sep = b.last().copied().is_some_and(is_separator);
     match (path.parent(), path.file_name()) {
         (Some(parent), Some(name)) if !trailing_sep && parent.is_dir() => Ok(Location {
             root: resolve_explicit(parent)?,
@@ -145,7 +147,7 @@ fn expand_tilde(arg: &OsStr, home: Option<&Path>) -> Result<PathBuf, ScopeError>
         return Ok(home.ok_or(ScopeError::NoHome)?.to_path_buf());
     }
     match Path::new(arg).strip_prefix("~") {
-        Ok(rest) if b.get(1).copied().is_some_and(is_sep) => {
+        Ok(rest) if b.get(1).copied().is_some_and(is_separator) => {
             Ok(home.ok_or(ScopeError::NoHome)?.join(rest))
         }
         _ => Ok(PathBuf::from(arg)),

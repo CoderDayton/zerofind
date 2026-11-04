@@ -19,10 +19,10 @@ pub fn is_match(plan: &SearchPlan, rel: &Path, is_dir: impl FnOnce() -> bool) ->
 
 /// The kind used for matching and `--files`/`--dirs`. A symlink takes its target's kind; it is
 /// still never descended into.
-pub fn is_dir(path: &Path, file_type: Option<FileType>) -> bool {
-    match file_type {
-        Some(t) if t.is_symlink() => fs::metadata(path).is_ok_and(|m| m.is_dir()),
-        Some(t) => t.is_dir(),
-        None => false,
+pub fn is_dir(path: &Path, file_type: FileType) -> bool {
+    if file_type.is_symlink() {
+        fs::metadata(path).is_ok_and(|m| m.is_dir())
+    } else {
+        file_type.is_dir()
     }
 }

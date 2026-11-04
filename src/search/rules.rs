@@ -96,21 +96,16 @@ impl Rules {
             None
         };
         let repo = git_type.is_some() || (found.jj && dir.join(".jj").exists());
-        let fd = if found.fd {
-            load(dir, dir, ".fdignore", problems)
-        } else {
-            Gitignore::empty()
+        let mut load_if = |listed: bool, name| {
+            if listed {
+                load(dir, dir, name, problems)
+            } else {
+                Gitignore::empty()
+            }
         };
-        let ignore = if found.ignore {
-            load(dir, dir, ".ignore", problems)
-        } else {
-            Gitignore::empty()
-        };
-        let git = if found.gitignore {
-            load(dir, dir, ".gitignore", problems)
-        } else {
-            Gitignore::empty()
-        };
+        let fd = load_if(found.fd, ".fdignore");
+        let ignore = load_if(found.ignore, ".ignore");
+        let git = load_if(found.gitignore, ".gitignore");
         let exclude = if found.git {
             match common_dir(dir, git_type) {
                 Ok(common) => load(dir, &common, "info/exclude", problems),

@@ -24,12 +24,12 @@ argv -> cli -> SearchPlan -> traversal: N workers filter + match -> per-worker b
 | `domain::query` | word compilation, name, glob and path matching, what a query names | the filesystem |
 | `domain::scope` | locations, root resolution, `~`, root dedupe | output formatting |
 | `domain::policy` | hidden, generated-directory and result-kind decisions | scheduling |
-| `search::filtering` | hidden and generated-directory admission per entry | query grammar |
+| `search::filtering` | walked paths relative to their search root | query grammar |
 | `search::rules` | ignore files across directories, repository boundaries | query words |
 | `search::exclude` | `-E` patterns: validation, one matcher per root | ignore files |
 | `search::matcher` | per-entry match and kind | output |
 | `search::walk` | worker queues, growth, stealing, termination | the filesystem |
-| `search::traversal` | reading directories, cancellation, error counting | argument parsing |
+| `search::traversal` | reading directories, admission per entry, cancellation, error counting | argument parsing |
 | `output::sink` | per-worker buffers, serialization, flushing, broken pipe | matching |
 | `error` | typed failures, exit statuses | search strategy |
 

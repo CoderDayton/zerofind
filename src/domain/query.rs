@@ -163,7 +163,7 @@ fn base_name(rel: &Path) -> Option<&[u8]> {
     (!name.is_empty()).then_some(name)
 }
 
-fn is_separator(b: u8) -> bool {
+pub(crate) fn is_separator(b: u8) -> bool {
     b == b'/' || (cfg!(windows) && b == b'\\')
 }
 

@@ -11,7 +11,7 @@ use std::time::Instant;
 use ignore::gitignore::Gitignore;
 
 use super::exclude;
-use super::filtering::{admission, relative};
+use super::filtering::relative;
 use super::matcher;
 use super::rules::{Matcher, Rules};
 use super::walk;
@@ -198,30 +198,37 @@ impl Walker<'_> {
                 return Ok(());
             }
         };
-        let is_dir = file_type.is_dir();
+        // The entry's own kind: a symlink to a directory is not one here.
+        let own_dir = file_type.is_dir();
         if self
             .exclude
-            .is_some_and(|x| x.matched(path, is_dir).is_ignore())
+            .is_some_and(|x| x.matched(path, own_dir).is_ignore())
         {
             return Ok(());
         }
-        if self.matcher.is_some_and(|m| m.ignored(rules, path, is_dir)) {
+        if self
+            .matcher
+            .is_some_and(|m| m.ignored(rules, path, own_dir))
+        {
             return Ok(());
         }
-        let (plan, root) = (self.plan, &self.root.path);
-        let rel = relative(path, root);
-        let admitted = admission(path, name, file_type, rel, &plan.query, plan.visibility);
+        let plan = self.plan;
+        let rel = relative(path, &self.root.path);
+        // Same kind for visibility and matching, so exclusion and `--dirs` agree about symlinks.
+        let is_dir = || matcher::is_dir(path, file_type);
+        let admitted = plan
+            .visibility
+            .admit(path, name, is_dir, || plan.query.names(rel));
         if admitted == Admission::Denied {
             return Ok(());
         }
-        let is_dir = || matcher::is_dir(path, Some(file_type));
         if matcher::is_match(plan, rel, is_dir) {
             out.push(self.root.display(path).as_os_str().as_encoded_bytes())
                 .map_err(|_| ())?;
         }
         // A hidden or generated directory the query only spells is a result, not a place to
         // look. Symlinks are never entered.
-        if file_type.is_dir() && admitted != Admission::Named(Named::Leaf) {
+        if own_dir && admitted != Admission::Named(Named::Leaf) {
             found.push(Job {
                 dir: path.to_path_buf(),
                 rules: rules.clone(),

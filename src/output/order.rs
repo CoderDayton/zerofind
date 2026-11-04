@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 
 use crate::domain::Order;
+use crate::domain::query::is_separator;
 
 /// Sorts one root's records in place, statting on up to `threads` threads for `Modified`.
 /// `Found` leaves them as they are.
@@ -48,15 +49,11 @@ fn stamp(part: &mut [Stamped]) {
 /// Depth, then bytes. The `./` (`.\` on Windows) kept for names starting with `-` counts for
 /// neither.
 fn nearest(record: &[u8]) -> (usize, &[u8]) {
-    let r = record
-        .strip_prefix(b"./")
-        .or_else(|| cfg!(windows).then(|| record.strip_prefix(b".\\")).flatten())
-        .unwrap_or(record);
-    let separators = r
-        .iter()
-        .filter(|&&b| b == b'/' || (cfg!(windows) && b == b'\\'))
-        .count();
-    (separators, r)
+    let r = match record {
+        [b'.', s, rest @ ..] if is_separator(*s) => rest,
+        _ => record,
+    };
+    (r.iter().filter(|&&b| is_separator(b)).count(), r)
 }
 
 #[cfg(unix)]
