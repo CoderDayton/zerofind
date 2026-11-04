@@ -124,7 +124,6 @@ fn sorted(
 ) -> Result<u8, ZfError> {
     let mut out = BufWriter::with_capacity(32 * 1024, out);
     let mut code = status::NO_MATCH;
-    let mut line = Vec::new();
     for root in &plan.roots {
         let one = SearchPlan {
             roots: vec![root.clone()],
@@ -140,18 +139,10 @@ fn sorted(
         }
         let mut records: Vec<&[u8]> = found.split(|&b| b == 0).filter(|r| !r.is_empty()).collect();
         output::order::sort(&mut records, order, traversal::worker_count());
-        for record in records {
-            if interrupted.load(Ordering::Relaxed) {
-                return written(out.flush()).map(|()| status::INTERRUPTED);
-            }
-            line.clear();
-            sink::encode(&mut line, record, plan.output);
-            if let Err(e) = out.write_all(&line) {
-                return written(Err(e)).map(|()| status::MATCHED);
-            }
-        }
-        if let Err(e) = out.flush() {
-            return written(Err(e)).map(|()| status::MATCHED);
+        match print(&mut out, &records, plan.output, interrupted) {
+            Ok(true) => {}
+            Ok(false) => return written(out.flush()).map(|()| status::INTERRUPTED),
+            Err(e) => return written(Err(e)).map(|()| status::MATCHED),
         }
         code = match (code, root_code) {
             (status::PARTIAL, _) | (_, status::PARTIAL) => status::PARTIAL,
@@ -160,6 +151,26 @@ fn sorted(
         };
     }
     Ok(code)
+}
+
+/// Writes and flushes one root's records; `Ok(false)` when Ctrl+C stopped it first.
+fn print(
+    out: &mut impl Write,
+    records: &[&[u8]],
+    format: OutputFormat,
+    interrupted: &AtomicBool,
+) -> io::Result<bool> {
+    let mut line = Vec::new();
+    for record in records {
+        if interrupted.load(Ordering::Relaxed) {
+            return Ok(false);
+        }
+        line.clear();
+        sink::encode(&mut line, record, format);
+        out.write_all(&line)?;
+    }
+    out.flush()?;
+    Ok(true)
 }
 
 /// A closed pipe is a quiet success, as in streaming mode; any other write error is fatal.
